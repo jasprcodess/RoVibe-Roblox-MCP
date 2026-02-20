@@ -33,13 +33,24 @@ class InstallerApp:
         self.root.withdraw()  # hide until ready
         self.root.title("RoVibe Installer")
         self.root.configure(bg=BG)
-        self.root.overrideredirect(True)
         self.root.resizable(False, False)
 
         # Center on screen
         x = (self.root.winfo_screenwidth() - W) // 2
         y = (self.root.winfo_screenheight() - H) // 2
         self.root.geometry(f"{W}x{H}+{x}+{y}")
+
+        # Set icon if available
+        try:
+            import os
+            if getattr(sys, "frozen", False):
+                icon_path = os.path.join(sys._MEIPASS, "logo.ico")
+            else:
+                icon_path = os.path.join(os.path.dirname(__file__), "logo.ico")
+            if os.path.exists(icon_path):
+                self.root.iconbitmap(icon_path)
+        except Exception:
+            pass
 
         # Fonts
         self.fn = tkfont.Font(family="Segoe UI", size=12)
@@ -56,29 +67,6 @@ class InstallerApp:
         self._opt_vars = {}
         self._opt_cbs = {}
         self.step_rows = {}
-        self._drag_x = 0
-        self._drag_y = 0
-
-        # Custom titlebar
-        tb = tk.Frame(self.root, bg=SURFACE, height=36)
-        tb.pack(fill="x")
-        tb.pack_propagate(False)
-        tb.bind("<Button-1>", self._start_drag)
-        tb.bind("<B1-Motion>", self._do_drag)
-
-        title_lbl = tk.Label(tb, text="RoVibe Installer", bg=SURFACE, fg=MUTED, font=self.fn_sm)
-        title_lbl.pack(side="left", padx=12)
-        title_lbl.bind("<Button-1>", self._start_drag)
-        title_lbl.bind("<B1-Motion>", self._do_drag)
-
-        close_btn = tk.Label(tb, text="\u00d7", bg=SURFACE, fg=MUTED, font=("Segoe UI", 16), width=3, cursor="hand2")
-        close_btn.pack(side="right")
-        close_btn.bind("<Button-1>", lambda e: self.root.destroy())
-        close_btn.bind("<Enter>", lambda e: close_btn.configure(bg="#ff4444", fg="#fff"))
-        close_btn.bind("<Leave>", lambda e: close_btn.configure(bg=SURFACE, fg=MUTED))
-
-        # Border under titlebar
-        tk.Frame(self.root, bg=BORDER, height=1).pack(fill="x")
 
         # Main content
         self.main = tk.Frame(self.root, bg=BG)
@@ -95,14 +83,6 @@ class InstallerApp:
 
     def run(self):
         self.root.mainloop()
-
-    # -- Drag --
-    def _start_drag(self, e):
-        self._drag_x = e.x_root - self.root.winfo_x()
-        self._drag_y = e.y_root - self.root.winfo_y()
-
-    def _do_drag(self, e):
-        self.root.geometry(f"+{e.x_root - self._drag_x}+{e.y_root - self._drag_y}")
 
     # -- Helpers --
     def _clear(self):
@@ -193,10 +173,9 @@ class InstallerApp:
             row.pack(fill="x", pady=1)
             cb = tk.Checkbutton(
                 row, text=name, variable=self._opt_vars[key],
-                bg=BG, fg=MUTED, selectcolor=SURFACE,
+                bg=BG, fg=TEXT, selectcolor=SURFACE,
                 activebackground=BG, activeforeground=TEXT,
-                font=self.fn, disabledforeground=MUTED,
-                state="disabled", anchor="w",
+                font=self.fn, anchor="w",
             )
             cb.pack(side="left")
             self._opt_cbs[key] = cb
@@ -262,13 +241,8 @@ class InstallerApp:
         dot.configure(text="\u25cf" if ok else "\u25cb", fg=SUCCESS if ok else MUTED)
         status.configure(text="Detected" if ok else "Not detected", fg=SUCCESS if ok else MUTED)
 
-        if key in self._opt_cbs:
-            if ok:
-                self._opt_vars[key].set(True)
-                self._opt_cbs[key].configure(state="normal", fg=TEXT)
-            else:
-                self._opt_vars[key].set(False)
-                self._opt_cbs[key].configure(state="disabled", fg=MUTED)
+        if key in self._opt_vars:
+            self._opt_vars[key].set(ok)
 
     def _detection_done(self):
         if self.detection.get("studio"):

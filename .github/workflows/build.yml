@@ -47,7 +47,7 @@ jobs:
           copy output\MCPStudioPlugin.rbxm installer\MCPStudioPlugin.rbxm
           copy assets\logo.ico installer\logo.ico
           cd installer
-          pyinstaller --onefile --noconsole --name "RoVibe-Installer" --icon=logo.ico --add-data "rovibe-mcp.exe;." --add-data "MCPStudioPlugin.rbxm;." installer.py
+          pyinstaller --onefile --noconsole --name "RoVibe-Installer" --icon=logo.ico --add-data "rovibe-mcp.exe;." --add-data "MCPStudioPlugin.rbxm;." --add-data "logo.ico;." installer.py
           copy dist\RoVibe-Installer.exe ..\output\RoVibe-Installer.exe
         shell: cmd
       - name: Upload artifact
