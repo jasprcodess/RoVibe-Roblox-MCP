@@ -91,6 +91,10 @@ The server also includes a system prompt that teaches the AI Roblox's coordinate
 
 Originally forked from [Roblox/studio-rust-mcp-server](https://github.com/Roblox/studio-rust-mcp-server). We've since rewritten large parts of the codebase but the core architecture comes from their work.
 
+## Important Notice
+
+The AI clients (Claude Desktop, Cursor, Claude Code) are third-party applications — any data sent through them is subject to their own privacy policies and terms of use, not Roblox's. Once installed, the RoVibe MCP server runs locally and can be accessed by programs on your computer to read and modify open Studio places. To uninstall, remove `MCPStudioPlugin.rbxm` from your Studio plugins folder and delete the RoVibe folder from `%LOCALAPPDATA%\RoVibe`.
+
 ## License
 
 MIT. Free and open source, do whatever you want with it.
