@@ -1,0 +1,122 @@
+name: Build & Release
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  CARGO_PKG_VERSION: "2.1.${{ github.run_number }}"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: Build Rust
+        run: |
+          cargo build --release
+          mkdir output
+          copy target\release\rovibe-mcp.exe output\rovibe-mcp.exe
+      - name: Extract plugin from build
+        run: |
+          $plugin = Get-ChildItem -Path target\release\build -Recurse -Filter MCPStudioPlugin.rbxm | Select-Object -First 1
+          Copy-Item $plugin.FullName output\MCPStudioPlugin.rbxm
+        shell: pwsh
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build GUI installer
+        run: |
+          pip install customtkinter pyinstaller Pillow
+          copy output\rovibe-mcp.exe installer\rovibe-mcp.exe
+          copy output\MCPStudioPlugin.rbxm installer\MCPStudioPlugin.rbxm
+          copy assets\logo.ico installer\logo.ico
+          cd installer
+          pyinstaller --onefile --noconsole --name "RoVibe-Installer" --icon=logo.ico --add-data "rovibe-mcp.exe;." --add-data "MCPStudioPlugin.rbxm;." --hidden-import customtkinter --collect-all customtkinter installer.py
+          copy dist\RoVibe-Installer.exe ..\output\RoVibe-Installer.exe
+        shell: cmd
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-rovibe-mcp
+          path: output/RoVibe-Installer.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: Build universal binary
+        run: |
+          rustup target add x86_64-apple-darwin aarch64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin --target x86_64-apple-darwin
+          mkdir -p output
+          lipo -create \
+            target/aarch64-apple-darwin/release/rovibe-mcp \
+            target/x86_64-apple-darwin/release/rovibe-mcp \
+            -output output/rovibe-mcp-macos
+          chmod +x output/rovibe-mcp-macos
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macOS-rovibe-mcp
+          path: output/rovibe-mcp-macos
+
+  release:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [build-windows, build-macos]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: output
+          merge-multiple: true
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.CARGO_PKG_VERSION }}
+          name: Release v${{ env.CARGO_PKG_VERSION }}
+          body: |
+            ## RoVibe Roblox MCP
+
+            ### Download
+            - **Windows**: `RoVibe-Installer.exe` — guides you through setup step by step
+            - **macOS**: `rovibe-mcp-macos` — run `chmod +x rovibe-mcp-macos && ./rovibe-mcp-macos` to install
+
+            The installer will:
+            1. Install the MCP server to your system
+            2. Copy the Studio plugin to your Roblox Studio plugins folder
+            3. Configure Claude Desktop and/or Cursor automatically
+            4. Show the Claude Code CLI command for manual setup
+
+            After installing, restart Roblox Studio and your AI client.
+
+            ### Tools (11 total)
+            `run_code` · `insert_model` · `create_instance` · `get_descendants` · `get_properties` · `get_selection` · `read_script` · `get_console_output` · `get_studio_mode` · `start_stop_play` · `run_script_in_play_mode`
+          files: output/*
+          generate_release_notes: true
