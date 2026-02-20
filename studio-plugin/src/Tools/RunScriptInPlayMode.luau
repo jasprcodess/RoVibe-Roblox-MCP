@@ -9,13 +9,20 @@ local StudioTestService = game:GetService("StudioTestService")
 
 local TEST_SCRIPT_NAME = "AssistantTestScript"
 
+local function escapeForLuaString(code: string): string
+	-- Escape user code for safe embedding in a Lua double-quoted string.
+	-- Order matters: backslashes first, then quotes, then control chars.
+	return code
+		:gsub("\\", "\\\\")
+		:gsub('"', '\\"')
+		:gsub("\n", "\\n")
+		:gsub("\r", "\\r")
+		:gsub("\0", "\\0")
+end
+
 local function buildTestRunnerSource(userCode: string, timeout: number): string
 	local timeoutStr = tostring(timeout)
-	-- Encode user code as a string literal to prevent injection via ]]
-	-- We escape backslashes and square brackets to safely embed in a long string
-	local escaped = userCode
-		:gsub("\\", "\\\\")
-		:gsub("%]%]", "]\\]")
+	local escapedCode = escapeForLuaString(userCode)
 	return [[
 local StudioTestService = game:GetService("StudioTestService")
 local LogService = game:GetService("LogService")
@@ -48,8 +55,7 @@ end)
 local startTime = os.clock()
 local isTimeout = false
 
-local _userCode = ]] .. '"' .. escaped:gsub('"', '\\"'):gsub('\n', '\\n'):gsub('\r', '') .. '"' .. [[
-
+local _userCode = "]] .. escapedCode .. [["
 local _chunk, _parseErr = loadstring(_userCode)
 local ok, result
 if not _chunk then
