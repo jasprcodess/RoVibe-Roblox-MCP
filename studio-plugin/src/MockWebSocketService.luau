@@ -96,9 +96,9 @@ function MockWebSocketClient._OpenImpl(self: MockWebSocketClientPrivate)
 					failCount = 0
 					task.spawn(self._MessageReceivedEvent.Fire, self._MessageReceivedEvent, response.Body)
 					continue
-				elseif response.StatusCode == 423 then
+				elseif response.StatusCode == 204 or response.StatusCode == 423 then
+					-- No pending requests (long-poll expired), re-poll immediately
 					failCount = 0
-					task.wait(0.1)
 					continue
 				end
 			end

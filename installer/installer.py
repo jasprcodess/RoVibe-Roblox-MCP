@@ -11,6 +11,14 @@ from installer_logic import (
     get_running_restartable, restart_process,
 )
 
+# Enable DPI awareness on Windows for crisp text on high-DPI displays
+if sys.platform == "win32":
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+
 # Palette
 BG = "#0e0e0e"
 SURFACE = "#161616"

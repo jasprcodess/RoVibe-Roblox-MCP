@@ -11,6 +11,11 @@ local TEST_SCRIPT_NAME = "AssistantTestScript"
 
 local function buildTestRunnerSource(userCode: string, timeout: number): string
 	local timeoutStr = tostring(timeout)
+	-- Encode user code as a string literal to prevent injection via ]]
+	-- We escape backslashes and square brackets to safely embed in a long string
+	local escaped = userCode
+		:gsub("\\", "\\\\")
+		:gsub("%]%]", "]\\]")
 	return [[
 local StudioTestService = game:GetService("StudioTestService")
 local LogService = game:GetService("LogService")
@@ -43,10 +48,15 @@ end)
 local startTime = os.clock()
 local isTimeout = false
 
-local ok, result = pcall(function()
-]] .. userCode .. [[
+local _userCode = ]] .. '"' .. escaped:gsub('"', '\\"'):gsub('\n', '\\n'):gsub('\r', '') .. '"' .. [[
 
-end)
+local _chunk, _parseErr = loadstring(_userCode)
+local ok, result
+if not _chunk then
+	ok, result = false, _parseErr or "Unknown parse error"
+else
+	ok, result = pcall(_chunk)
+end
 
 local function endTest()
 	if testEnded then return end
@@ -105,7 +115,7 @@ end
 local function runScriptInPlayMode(args: Types.RunScriptInPlayModeArgs): string?
 	injectTestScript(args)
 
-	ConsoleOutput.outputMessage = ""
+	ConsoleOutput.flush()
 	local success, result = pcall(function()
 		if args.mode == "start_play" then
 			GlobalVariables.studioMode = "start_play"

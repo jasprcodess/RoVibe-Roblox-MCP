@@ -6,7 +6,7 @@ local GameStopUtil = require(Main.Utils.GameStopUtil)
 local GlobalVariables = require(Main.Utils.GlobalVariables)
 
 local function startPlay(): string?
-	ConsoleOutput.outputMessage = ""
+	ConsoleOutput.flush()
 	GlobalVariables.studioMode = "start_play"
 	task.spawn(function()
 		StudioTestService:ExecutePlayModeAsync({})
@@ -21,7 +21,7 @@ local function stop(): string?
 end
 
 local function runServer(): string?
-	ConsoleOutput.outputMessage = ""
+	ConsoleOutput.flush()
 	GlobalVariables.studioMode = "run_server"
 	task.spawn(function()
 		StudioTestService:ExecuteRunModeAsync({})

@@ -29,11 +29,11 @@ where
 impl IntoResponse for Report {
     fn into_response(self) -> Response {
         let err = self.0;
-        let err_string = format!("{err:?}");
-        tracing::error!("{err_string}");
+        let display_msg = format!("{err}");
+        tracing::error!("{err:?}");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Something went wrong".to_string(),
+            display_msg,
         )
             .into_response()
     }

@@ -8,9 +8,7 @@ local function handleGetConsoleOutput(args: Types.ToolArgs): string?
 		return nil
 	end
 
-	local result = ConsoleOutput.outputMessage or ""
-	ConsoleOutput.outputMessage = ""
-	return result
+	return ConsoleOutput.flush()
 end
 
 return handleGetConsoleOutput :: Types.ToolFunction

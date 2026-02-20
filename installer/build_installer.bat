@@ -2,15 +2,14 @@
 REM Build RoVibe MCP Installer using PyInstaller
 REM Run this from the installer/ directory
 
-pip install -r requirements.txt
+pip install pyinstaller
 
 pyinstaller --onefile --noconsole ^
     --name "RoVibe-Installer" ^
     --icon=logo.ico ^
     --add-data "rovibe-mcp.exe;." ^
     --add-data "MCPStudioPlugin.rbxm;." ^
-    --hidden-import customtkinter ^
-    --collect-all customtkinter ^
+    --add-data "logo.ico;." ^
     installer.py
 
 echo.

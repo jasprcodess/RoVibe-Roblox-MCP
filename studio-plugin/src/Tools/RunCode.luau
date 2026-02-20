@@ -10,6 +10,8 @@ local TRACKED_PROPS = {
 	"Visible", "Enabled", "Value", "Parent",
 }
 
+local RUN_CODE_TIMEOUT = 30
+
 local function readProp(inst: Instance, prop: string): (boolean, any)
 	return pcall(function()
 		return (inst :: any)[prop]
@@ -46,19 +48,19 @@ local function propToString(value: any): string
 	return tostring(value)
 end
 
-local function snapshotProps(inst: Instance): { [string]: any }
+local function snapshotProps(inst: Instance): { [string]: string }
 	local snap = {}
 	for _, prop in TRACKED_PROPS do
 		local ok, val = readProp(inst, prop)
 		if ok then
-			snap[prop] = val
+			snap[prop] = propToString(val)
 		end
 	end
 	return snap
 end
 
-local function runCodeWithOutput(command: string): string
-	local output = ""
+local function runCodeWithOutput(command: string): (string, boolean)
+	local parts = {}
 
 	local function getTableType(arg)
 		local hasArray = false
@@ -131,8 +133,10 @@ local function runCodeWithOutput(command: string): string
 
 	local function addToOutput(header: string, ...)
 		local strResults = toStrTable(table.pack(...))
-		output ..= header .. " " .. table.concat(strResults, "\t") .. "\n"
+		table.insert(parts, header .. " " .. table.concat(strResults, "\t"))
 	end
+
+	local timedOut = false
 
 	local function executeCode()
 		local chunk, parseError = loadstring(command)
@@ -155,14 +159,34 @@ local function runCodeWithOutput(command: string): string
 			addToOutput("[WARNING]", ...)
 		end
 
-		local oldError = error
-		chunkfenv.error = function(...)
-			addToOutput("[ERROR]", ...)
-			oldError(...)
+		-- Run with timeout
+		local finished = false
+		local results = {}
+
+		local coro = coroutine.create(function()
+			results = table.pack(chunk())
+			finished = true
+		end)
+
+		local startTime = os.clock()
+		local ok, err = coroutine.resume(coro)
+
+		-- If the coroutine yielded (e.g. task.wait), keep resuming until timeout
+		while coroutine.status(coro) == "suspended" do
+			if os.clock() - startTime > RUN_CODE_TIMEOUT then
+				timedOut = true
+				addToOutput("[TIMEOUT]", string.format("Code execution exceeded %ds limit", RUN_CODE_TIMEOUT))
+				break
+			end
+			task.wait()
+			ok, err = coroutine.resume(coro)
 		end
 
-		local results = table.pack(chunk())
-		if #results > 0 then
+		if not ok and not timedOut then
+			error(err)
+		end
+
+		if finished and #results > 0 then
 			addToOutput("[RETURNED RESULTS]", table.unpack(results))
 		end
 
@@ -170,11 +194,11 @@ local function runCodeWithOutput(command: string): string
 	end
 
 	local ok, errorMessage = pcall(executeCode)
-	if not ok then
-		addToOutput("[UNEXPECTED ERROR]", errorMessage)
+	if not ok and not timedOut then
+		addToOutput("[ERROR]", errorMessage)
 	end
 
-	return output
+	return table.concat(parts, "\n"), timedOut
 end
 
 local function snapshotWorkspace(): { [Instance]: true }
@@ -216,13 +240,13 @@ local function handleRunCode(args: Types.ToolArgs): string?
 	-- Snapshot instances
 	local before = snapshotWorkspace()
 
-	-- Snapshot properties of existing instances
-	local propsBefore: { [Instance]: { [string]: any } } = {}
+	-- Snapshot string representations of properties for existing instances
+	local propsBefore: { [Instance]: { [string]: string } } = {}
 	for inst in before do
 		propsBefore[inst] = snapshotProps(inst)
 	end
 
-	local output = runCodeWithOutput(runCodeArgs.command)
+	local output, timedOut = runCodeWithOutput(runCodeArgs.command)
 
 	local after = snapshotWorkspace()
 	local created = {}
@@ -246,16 +270,19 @@ local function handleRunCode(args: Types.ToolArgs): string?
 			local oldSnap = propsBefore[inst]
 			if oldSnap then
 				for _, prop in TRACKED_PROPS do
-					local oldVal = oldSnap[prop]
-					if oldVal ~= nil then
+					local oldStr = oldSnap[prop]
+					if oldStr ~= nil then
 						local okNew, newVal = readProp(inst, prop)
-						if okNew and tostring(oldVal) ~= tostring(newVal) then
-							table.insert(changes, {
-								instance = inst,
-								property = prop,
-								oldValue = oldVal,
-								newValue = newVal,
-							})
+						if okNew then
+							local newStr = propToString(newVal)
+							if oldStr ~= newStr then
+								table.insert(changes, {
+									instance = inst,
+									property = prop,
+									oldStr = oldStr,
+									newStr = newStr,
+								})
+							end
 						end
 					end
 				end
@@ -263,51 +290,56 @@ local function handleRunCode(args: Types.ToolArgs): string?
 		end
 	end
 
-	-- Always show scene changes section
-	output ..= "\n[SCENE CHANGES]\n"
+	-- Build scene changes using table.insert for efficiency
+	local changeParts = {}
+
+	table.insert(changeParts, "\n[SCENE CHANGES]")
+
+	if timedOut then
+		table.insert(changeParts, "[WARNING] Code was terminated due to timeout. Changes below reflect partial execution.")
+	end
 
 	if #created > 0 then
-		output ..= string.format("Created %d instance(s):\n", #created)
+		table.insert(changeParts, string.format("Created %d instance(s):", #created))
 		for i = 1, math.min(#created, 50) do
 			local inst = created[i]
-			output ..= describeInstance(inst) .. "\n"
+			table.insert(changeParts, describeInstance(inst))
 			-- Show key properties of new instances
 			local newSnap = snapshotProps(inst)
 			for _, prop in TRACKED_PROPS do
 				if newSnap[prop] ~= nil and prop ~= "Name" and prop ~= "Parent" then
-					output ..= string.format("    .%s = %s\n", prop, propToString(newSnap[prop]))
+					table.insert(changeParts, string.format("    .%s = %s", prop, newSnap[prop]))
 				end
 			end
 		end
 		if #created > 50 then
-			output ..= string.format("  ... and %d more\n", #created - 50)
+			table.insert(changeParts, string.format("  ... and %d more", #created - 50))
 		end
 	end
 
 	if removed > 0 then
-		output ..= string.format("Removed %d instance(s)\n", removed)
+		table.insert(changeParts, string.format("Removed %d instance(s)", removed))
 	end
 
 	if #changes > 0 then
-		output ..= string.format("Modified %d property(s):\n", #changes)
+		table.insert(changeParts, string.format("Modified %d property(s):", #changes))
 		for i = 1, math.min(#changes, 100) do
 			local c = changes[i]
 			local path = c.instance:GetFullName()
-			output ..= string.format("  %s.%s: %s → %s\n",
-				path, c.property,
-				propToString(c.oldValue), propToString(c.newValue)
-			)
+			table.insert(changeParts, string.format("  %s.%s: %s → %s",
+				path, c.property, c.oldStr, c.newStr
+			))
 		end
 		if #changes > 100 then
-			output ..= string.format("  ... and %d more changes\n", #changes - 100)
+			table.insert(changeParts, string.format("  ... and %d more changes", #changes - 100))
 		end
 	end
 
 	if #created == 0 and removed == 0 and #changes == 0 then
-		output ..= "No changes detected.\n"
+		table.insert(changeParts, "No changes detected.")
 	end
 
-	return output
+	return output .. "\n" .. table.concat(changeParts, "\n")
 end
 
 return handleRunCode :: Types.ToolFunction

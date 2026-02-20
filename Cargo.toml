@@ -33,7 +33,7 @@ rojo = "7.6.1"
 strip = true
 lto = true
 codegen-units = 1
-opt-level = "z"
+opt-level = "s"
 
 [package.metadata.bundle]
 name = "RoVibeRobloxMCP"

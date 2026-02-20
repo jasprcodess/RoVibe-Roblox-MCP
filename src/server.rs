@@ -419,7 +419,7 @@ pub async fn request_handler(State(state): State<PackedState>) -> Result<impl In
     .await;
     match timeout {
         Ok(result) => Ok(Json(result?).into_response()),
-        _ => Ok((StatusCode::LOCKED, String::new()).into_response()),
+        _ => Ok(StatusCode::NO_CONTENT.into_response()),
     }
 }
 
@@ -469,9 +469,21 @@ pub async fn secondary_proxy_loop(state: PackedState, exit: Receiver<()>) {
     let client = reqwest::Client::new();
 
     let mut waiter = { state.lock().await.waiter.clone() };
+    // Mark current value as seen so we only wake on new triggers
+    waiter.borrow_and_update();
+
     while exit.is_empty() {
-        let entry = { state.lock().await.process_queue.pop_front() };
-        if let Some(entry) = entry {
+        // Wait for a trigger signal before checking the queue
+        if waiter.changed().await.is_err() {
+            tracing::info!("Proxy loop trigger channel closed, exiting");
+            break;
+        }
+
+        // Drain all queued items after waking
+        loop {
+            let entry = { state.lock().await.process_queue.pop_front() };
+            let Some(entry) = entry else { break };
+
             let id = match entry.id {
                 Some(id) => id,
                 None => {
@@ -510,9 +522,6 @@ pub async fn secondary_proxy_loop(state: PackedState, exit: Receiver<()>) {
                     }
                 }
             };
-        } else if waiter.changed().await.is_err() {
-            tracing::info!("Proxy loop trigger channel closed, exiting");
-            break;
         }
     }
 }
