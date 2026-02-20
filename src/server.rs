@@ -235,8 +235,8 @@ enum ToolArgumentValues {
 }
 #[tool_router]
 impl RoVibeServer {
-    pub fn new(state: PackedState) -> Self {
-        let trigger = state.blocking_lock().trigger.clone();
+    pub async fn new(state: PackedState) -> Self {
+        let trigger = state.lock().await.trigger.clone();
         Self {
             state,
             trigger,

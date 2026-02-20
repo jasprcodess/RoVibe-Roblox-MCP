@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
         })
     };
 
-    let service = RoVibeServer::new(Arc::clone(&server_state))
+    let service = RoVibeServer::new(Arc::clone(&server_state)).await
         .serve(rmcp::transport::stdio())
         .await
         .inspect_err(|e| {
