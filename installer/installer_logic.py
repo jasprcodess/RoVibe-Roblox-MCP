@@ -307,12 +307,64 @@ def run_install(
         f'claude mcp add --transport stdio RoVibe_Studio -- "{dst_exe}" --stdio'
     )
 
-    # 6. Restart Studio if it was running
-    step("restart", "working")
-    if is_studio_running():
-        kill_studio()
-        results["steps"].append("Roblox Studio restarted")
-    step("restart", "done")
-
     step("complete", "done")
     return results
+
+
+def get_running_restartable() -> dict[str, bool]:
+    """Check which restartable processes are currently running."""
+    running = {}
+    if is_studio_running():
+        running["studio"] = True
+    if is_process_running("Claude.exe"):
+        running["claude"] = True
+    if is_process_running("Cursor.exe"):
+        running["cursor"] = True
+    return running
+
+
+def restart_process(key: str) -> bool:
+    """Kill and relaunch a process by key. Returns True on success."""
+    if key == "studio":
+        kill_studio()
+        # Relaunch Studio
+        try:
+            local = os.environ.get("LOCALAPPDATA", "")
+            versions = Path(local) / "Roblox" / "Versions"
+            if versions.exists():
+                for entry in sorted(versions.iterdir(), reverse=True):
+                    exe = entry / "RobloxStudioBeta.exe"
+                    if exe.exists():
+                        subprocess.Popen([str(exe)], creationflags=0x00000008)  # DETACHED_PROCESS
+                        return True
+        except Exception:
+            pass
+        return False
+
+    if key == "claude":
+        kill_process("Claude.exe")
+        try:
+            local = os.environ.get("LOCALAPPDATA", "")
+            exe = Path(local) / "Programs" / "claude-desktop" / "Claude.exe"
+            if not exe.exists():
+                exe = Path(local) / "AnthropicClaude" / "Claude.exe"
+            if exe.exists():
+                subprocess.Popen([str(exe)], creationflags=0x00000008)
+                return True
+        except Exception:
+            pass
+        return False
+
+    if key == "cursor":
+        kill_process("Cursor.exe")
+        try:
+            local = os.environ.get("LOCALAPPDATA", "")
+            exe = Path(local) / "Programs" / "cursor" / "Cursor.exe"
+            if exe.exists():
+                subprocess.Popen([str(exe)], creationflags=0x00000008)
+                return True
+        except Exception:
+            pass
+        return False
+
+    return False

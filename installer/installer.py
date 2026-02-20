@@ -7,7 +7,7 @@ from tkinter import font as tkfont
 from installer_logic import (
     find_studio_plugins, is_studio_running,
     claude_desktop_detected, cursor_detected, claude_code_detected,
-    run_install,
+    run_install, get_running_restartable, restart_process,
 )
 
 # Palette
@@ -156,7 +156,6 @@ class InstallerApp:
         tk.Label(det, text="STATUS", bg=BG, fg=MUTED, font=self.fn_xs).pack(anchor="w")
 
         self._detect_labels["studio"] = self._status_row(det, "Roblox Studio")
-        self._studio_warn = tk.Label(det, text="  Will be closed during install", bg=BG, fg=WARN, font=self.fn_sm)
         self._detect_labels["claude"] = self._status_row(det, "Claude Desktop")
         self._detect_labels["cursor"] = self._status_row(det, "Cursor")
         self._detect_labels["claude_code"] = self._status_row(det, "Claude Code CLI")
@@ -214,12 +213,6 @@ class InstallerApp:
         self.detection["studio"] = studio_ok
         self.root.after(0, lambda: self._update_detect("studio", studio_ok))
 
-        if studio_ok:
-            running = is_studio_running()
-            self.detection["studio_running"] = running
-            if running:
-                self.root.after(0, lambda: self._studio_warn.pack(anchor="w"))
-
         claude_ok = claude_desktop_detected()
         self.detection["claude"] = claude_ok
         self.root.after(0, lambda: self._update_detect("claude", claude_ok))
@@ -272,7 +265,6 @@ class InstallerApp:
             step_defs.append(("cursor", "Configure Cursor"))
         if self._opt_vars["claude_code"].get():
             step_defs.append(("claude_code", "Configure Claude Code CLI"))
-        step_defs.append(("restart", "Restart services"))
 
         self.step_rows = {}
         for sid, label in step_defs:
@@ -336,10 +328,135 @@ class InstallerApp:
             txt.configure(fg=TEXT)
             st.configure(text="Failed", fg=ERROR)
 
-    # -- Done --
+    # -- Post-install: restart prompt --
     def _show_done(self, results):
         self._progress_running = False
+        self._install_results = results
+
+        all_failed = len(results.get("steps", [])) == 0
+        if all_failed:
+            self._show_final()
+            return
+
+        # Check what's running that needs a restart
+        self._restart_targets = get_running_restartable()
+
+        # Only show restart prompt if something is running
+        if self._restart_targets:
+            self._show_restart_prompt()
+        else:
+            self._show_final()
+
+    def _show_restart_prompt(self):
         self._clear()
+
+        hdr = tk.Frame(self.main, bg=BG)
+        hdr.pack(fill="x", padx=PAD, pady=(16, 8))
+        tk.Label(hdr, text="Restart", bg=BG, fg="#fff", font=self.fn_md).pack(side="left")
+
+        self._div(self.main)
+
+        info = tk.Frame(self.main, bg=BG)
+        info.pack(fill="x", padx=PAD, pady=(10, 4))
+        tk.Label(
+            info, text="These apps need to restart to pick up the changes.",
+            bg=BG, fg=MUTED, font=self.fn_sm, wraplength=W - 40, justify="left",
+        ).pack(anchor="w")
+
+        opts = tk.Frame(self.main, bg=BG)
+        opts.pack(fill="x", padx=PAD, pady=(6, 0))
+
+        names = {"studio": "Roblox Studio", "claude": "Claude Desktop", "cursor": "Cursor"}
+        self._restart_vars = {}
+
+        for key in self._restart_targets:
+            var = tk.BooleanVar(value=True)
+            self._restart_vars[key] = var
+            row = tk.Frame(opts, bg=BG)
+            row.pack(fill="x", pady=1)
+            cb = tk.Checkbutton(
+                row, text=names.get(key, key), variable=var,
+                bg=BG, fg=TEXT, selectcolor=SURFACE,
+                activebackground=BG, activeforeground=TEXT,
+                font=self.fn, anchor="w",
+            )
+            cb.pack(side="left")
+            tk.Label(row, text="Running", bg=BG, fg=WARN, font=self.fn_sm).pack(side="right")
+
+        tk.Frame(self.main, bg=BG).pack(fill="both", expand=True)
+
+        bot = tk.Frame(self.main, bg=BG)
+        bot.pack(fill="x", padx=PAD, pady=(0, PAD))
+
+        self._make_btn(bot, "Restart selected", self._do_restarts).pack(fill="x", pady=(0, 6))
+        skip_lbl = tk.Label(bot, text="Skip, I'll restart later", bg=BG, fg=MUTED, font=self.fn_sm, cursor="hand2")
+        skip_lbl.pack()
+        skip_lbl.bind("<Button-1>", lambda e: self._show_final())
+        skip_lbl.bind("<Enter>", lambda e: skip_lbl.configure(fg=TEXT))
+        skip_lbl.bind("<Leave>", lambda e: skip_lbl.configure(fg=MUTED))
+
+    def _do_restarts(self):
+        self._clear()
+
+        hdr = tk.Frame(self.main, bg=BG)
+        hdr.pack(fill="x", padx=PAD, pady=(16, 8))
+        tk.Label(hdr, text="Restarting", bg=BG, fg="#fff", font=self.fn_md).pack(side="left")
+        self._div(self.main)
+
+        sf = tk.Frame(self.main, bg=BG)
+        sf.pack(fill="x", padx=PAD, pady=(10, 0))
+
+        names = {"studio": "Roblox Studio", "claude": "Claude Desktop", "cursor": "Cursor"}
+        self._restart_rows = {}
+
+        for key, var in self._restart_vars.items():
+            if var.get():
+                row = tk.Frame(sf, bg=BG, height=24)
+                row.pack(fill="x", pady=1)
+                row.pack_propagate(False)
+                ind = tk.Label(row, text="\u25cb", bg=BG, fg=MUTED, font=("Segoe UI", 8))
+                ind.pack(side="left", padx=(2, 8))
+                txt = tk.Label(row, text=names.get(key, key), bg=BG, fg=MUTED, font=self.fn)
+                txt.pack(side="left")
+                st = tk.Label(row, text="", bg=BG, fg=MUTED, font=self.fn_sm)
+                st.pack(side="right")
+                self._restart_rows[key] = (ind, txt, st)
+
+        if not self._restart_rows:
+            self._show_final()
+            return
+
+        def do_it():
+            for key in list(self._restart_rows.keys()):
+                self.root.after(0, lambda k=key: self._update_restart_row(k, "working"))
+                ok = restart_process(key)
+                status = "done" if ok else "error"
+                self.root.after(0, lambda k=key, s=status: self._update_restart_row(k, s))
+                if ok:
+                    self._install_results.setdefault("steps", []).append(f"{names.get(key, key)} restarted")
+            self.root.after(500, self._show_final)
+
+        threading.Thread(target=do_it, daemon=True).start()
+
+    def _update_restart_row(self, key, status):
+        if key not in self._restart_rows:
+            return
+        ind, txt, st = self._restart_rows[key]
+        if status == "working":
+            ind.configure(text="\u25c9", fg=ACCENT)
+            txt.configure(fg=TEXT)
+            st.configure(text="Restarting...", fg=ACCENT)
+        elif status == "done":
+            ind.configure(text="\u25cf", fg=SUCCESS)
+            st.configure(text="Done", fg=SUCCESS)
+        elif status == "error":
+            ind.configure(text="\u25cf", fg=ERROR)
+            st.configure(text="Failed", fg=ERROR)
+
+    # -- Final done screen --
+    def _show_final(self):
+        self._clear()
+        results = self._install_results
 
         has_errors = len(results.get("errors", [])) > 0
         all_failed = len(results.get("steps", [])) == 0
@@ -401,9 +518,6 @@ class InstallerApp:
             copy_lbl.bind("<Button-1>", copy_cmd)
 
         tk.Frame(self.main, bg=BG).pack(fill="both", expand=True)
-
-        if not all_failed:
-            tk.Label(self.main, text="Restart your AI client, then open Studio.", bg=BG, fg=MUTED, font=self.fn_sm).pack(padx=PAD, anchor="w", pady=(0, 4))
 
         bot = tk.Frame(self.main, bg=BG)
         bot.pack(fill="x", padx=PAD, pady=(0, PAD))
