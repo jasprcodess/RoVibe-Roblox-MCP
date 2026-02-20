@@ -128,7 +128,7 @@ impl ServerHandler for RoVibeServer {
 - get_selection: See what the user has selected in Studio.
 - read_script: Read script source code.
 - create_instance: Create a single instance with properties (good for one-off parts).
-- run_code: Execute Luau code. Best for bulk creation - write a script that creates an entire structure. Use print() to return data. The output of print() is returned to you.
+- run_code: Execute Luau code. Best for bulk creation - write a script that creates an entire structure. Use print() to return data. Returns a full changelog showing every instance created/removed and every property changed (with before→after values).
 - insert_model: Search and insert marketplace models.
 
 ## run_code Best Practices
@@ -245,7 +245,7 @@ impl RoVibeServer {
     }
 
     #[tool(
-        description = "Runs a command in Roblox Studio and returns the printed output. Can be used to both make changes and retrieve information"
+        description = "Runs Luau code in Roblox Studio and returns the printed output plus a full changelog of every scene change (instances created/removed, properties modified with before→after values). Use print() to return data."
     )]
     async fn run_code(
         &self,

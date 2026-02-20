@@ -410,12 +410,28 @@ class InstallerApp:
         self._make_btn(bot, "Done", self.root.destroy).pack(fill="x")
 
 
+def _acquire_lock():
+    """Ensure only one instance of the installer runs at a time."""
+    if sys.platform == "win32":
+        import ctypes
+        _mutex = ctypes.windll.kernel32.CreateMutexW(None, True, "RoVibeMCPInstallerMutex")
+        if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            # Another instance is running, bring it to front and exit
+            import ctypes.wintypes
+            hwnd = ctypes.windll.user32.FindWindowW(None, "RoVibe Installer")
+            if hwnd:
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+            sys.exit(0)
+        return _mutex
+    return None
+
+
 if __name__ == "__main__":
     try:
+        _lock = _acquire_lock()
         app = InstallerApp()
         app.run()
     except Exception:
-        # If GUI fails, fall back to basic message
         import traceback
         traceback.print_exc()
         input("Press Enter to exit...")
