@@ -3,7 +3,11 @@
 import sys
 import threading
 import customtkinter as ctk
-from installer_logic import detect_all, run_install
+from installer_logic import (
+    find_studio_plugins, is_studio_running,
+    claude_desktop_detected, cursor_detected, claude_code_detected,
+    run_install,
+)
 
 # Palette
 BG = "#0e0e0e"
@@ -74,10 +78,14 @@ class InstallerApp(ctk.CTk):
         self.main.pack(fill="both", expand=True)
 
         self.step_rows = {}
-        self.detection = None
+        self.detection = {"studio": False, "studio_running": False, "claude": False, "cursor": False, "claude_code": False}
+        self._detect_labels = {}
+        self._opts = {}
 
-        # Show UI immediately with loading state, detect in background
-        self._show_loading()
+        # Show main UI immediately with "checking..." placeholders
+        self._show_main_skeleton()
+
+        # Detect each item in background, update UI as each finishes
         threading.Thread(target=self._run_detection, daemon=True).start()
 
     def _start_drag(self, e):
@@ -100,22 +108,9 @@ class InstallerApp(ctk.CTk):
     def _div(self, parent):
         ctk.CTkFrame(parent, fg_color=BORDER, height=1, corner_radius=0).pack(fill="x", padx=PAD)
 
-    # -- Loading --
+    # -- Main Screen (shown instantly) --
 
-    def _show_loading(self):
-        self._clear()
-        f = ctk.CTkFrame(self.main, fg_color=BG)
-        f.pack(expand=True)
-        self._lbl(f, "Detecting...", size=13, color=MUTED).pack()
-
-    def _run_detection(self):
-        self.detection = detect_all()
-        self.after(0, self._show_main)
-
-    # -- Main Screen --
-
-    def _show_main(self):
-        self._clear()
+    def _show_main_skeleton(self):
         d = self.detection
 
         # Header
@@ -126,17 +121,17 @@ class InstallerApp(ctk.CTk):
 
         self._div(self.main)
 
-        # Detection results
+        # Detection results (all show "Checking..." initially)
         det = ctk.CTkFrame(self.main, fg_color=BG)
         det.pack(fill="x", padx=PAD, pady=(12, 0))
         self._lbl(det, "STATUS", size=9, color=MUTED).pack(anchor="w")
 
-        self._status_row(det, "Roblox Studio", d["studio"])
-        if d["studio_running"]:
-            self._lbl(det, "  Will be closed during install", size=10, color=WARN).pack(anchor="w")
-        self._status_row(det, "Claude Desktop", d["claude"])
-        self._status_row(det, "Cursor", d["cursor"])
-        self._status_row(det, "Claude Code CLI", d["claude_code"])
+        self._detect_labels["studio"] = self._status_row(det, "Roblox Studio")
+        self._studio_warn = self._lbl(det, "  Will be closed during install", size=10, color=WARN)
+        # Hidden by default
+        self._detect_labels["claude"] = self._status_row(det, "Claude Desktop")
+        self._detect_labels["cursor"] = self._status_row(det, "Cursor")
+        self._detect_labels["claude_code"] = self._status_row(det, "Claude Code CLI")
 
         # Configure checkboxes
         self._div(self.main)
@@ -144,43 +139,106 @@ class InstallerApp(ctk.CTk):
         opts.pack(fill="x", padx=PAD, pady=(12, 0))
         self._lbl(opts, "CONFIGURE", size=9, color=MUTED).pack(anchor="w")
 
-        self.opt_claude = ctk.BooleanVar(value=d["claude"])
-        self.opt_cursor = ctk.BooleanVar(value=d["cursor"])
-        self.opt_claude_code = ctk.BooleanVar(value=d["claude_code"])
+        self._opts["claude"] = {"var": ctk.BooleanVar(value=False), "frame": None, "cb": None}
+        self._opts["cursor"] = {"var": ctk.BooleanVar(value=False), "frame": None, "cb": None}
+        self._opts["claude_code"] = {"var": ctk.BooleanVar(value=False), "frame": None, "cb": None}
 
-        self._check_row(opts, "Claude Desktop", self.opt_claude, not d["claude"])
-        self._check_row(opts, "Cursor", self.opt_cursor, not d["cursor"])
-        self._check_row(opts, "Claude Code CLI", self.opt_claude_code, not d["claude_code"])
+        self._opts["claude"]["frame"], self._opts["claude"]["cb"] = self._check_row(opts, "Claude Desktop", self._opts["claude"]["var"], disabled=True)
+        self._opts["cursor"]["frame"], self._opts["cursor"]["cb"] = self._check_row(opts, "Cursor", self._opts["cursor"]["var"], disabled=True)
+        self._opts["claude_code"]["frame"], self._opts["claude_code"]["cb"] = self._check_row(opts, "Claude Code CLI", self._opts["claude_code"]["var"], disabled=True)
 
         # Spacer
         ctk.CTkFrame(self.main, fg_color="transparent").pack(fill="both", expand=True)
 
-        # Install button
-        bot = ctk.CTkFrame(self.main, fg_color=BG)
-        bot.pack(fill="x", padx=PAD, pady=(0, PAD))
+        # Studio required error (hidden initially)
+        self._bot = ctk.CTkFrame(self.main, fg_color=BG)
+        self._bot.pack(fill="x", padx=PAD, pady=(0, PAD))
 
-        if not d["studio"]:
-            self._lbl(bot, "Roblox Studio is required", size=10, color=ERROR).pack(pady=(0, 6))
+        self._studio_err_lbl = self._lbl(self._bot, "Roblox Studio is required", size=10, color=ERROR)
+        # hidden initially
 
         self.install_btn = ctk.CTkButton(
-            bot, text="Install", height=38,
+            self._bot, text="Install", height=38,
             font=ctk.CTkFont(family=FONT, size=13, weight="bold"),
             fg_color=ACCENT, hover_color=ACCENT_DIM, text_color="#fff",
             corner_radius=6, command=self._on_install,
-            state="normal" if d["studio"] else "disabled",
+            state="disabled",
         )
         self.install_btn.pack(fill="x")
 
-    def _status_row(self, parent, name, ok):
+    def _run_detection(self):
+        # Detect each item individually and update UI immediately
+        plugins = find_studio_plugins()
+        studio_ok = plugins is not None
+        self.detection["studio"] = studio_ok
+        self.after(0, lambda: self._update_detect("studio", studio_ok))
+
+        if studio_ok:
+            running = is_studio_running()
+            self.detection["studio_running"] = running
+            self.after(0, lambda: self._show_studio_warn(running))
+
+        claude_ok = claude_desktop_detected()
+        self.detection["claude"] = claude_ok
+        self.after(0, lambda: self._update_detect("claude", claude_ok))
+
+        cursor_ok = cursor_detected()
+        self.detection["cursor"] = cursor_ok
+        self.after(0, lambda: self._update_detect("cursor", cursor_ok))
+
+        cc_ok = claude_code_detected()
+        self.detection["claude_code"] = cc_ok
+        self.after(0, lambda: self._update_detect("claude_code", cc_ok))
+
+        # Enable install button if studio found
+        self.after(0, self._detection_done)
+
+    def _update_detect(self, key, ok):
+        """Update a single detection row from checking -> result."""
+        if key not in self._detect_labels:
+            return
+        dot_lbl, status_lbl = self._detect_labels[key]
+        dot = "\u25cf" if ok else "\u25cb"
+        color = SUCCESS if ok else MUTED
+        dot_lbl.configure(text=dot, text_color=color)
+        status_lbl.configure(text="Detected" if ok else "Not detected", text_color=color)
+
+        # Update matching checkbox if exists
+        if key in self._opts:
+            opt = self._opts[key]
+            if ok:
+                opt["var"].set(True)
+                opt["cb"].configure(state="normal", text_color=TEXT)
+            else:
+                opt["var"].set(False)
+                opt["cb"].configure(state="disabled", text_color=MUTED)
+
+    def _show_studio_warn(self, running):
+        if running:
+            self._studio_warn.pack(anchor="w")
+        else:
+            self._studio_warn.pack_forget()
+
+    def _detection_done(self):
+        if self.detection["studio"]:
+            self.install_btn.configure(state="normal")
+        else:
+            self._studio_err_lbl.pack(pady=(0, 6))
+
+    def _status_row(self, parent, name):
         row = ctk.CTkFrame(parent, fg_color="transparent", height=22)
         row.pack(fill="x", pady=1)
         row.pack_propagate(False)
-        dot = "\u25cf" if ok else "\u25cb"
-        color = SUCCESS if ok else MUTED
-        self._lbl(row, dot, size=7, color=color).pack(side="left", padx=(2, 6))
-        self._lbl(row, name, size=12, color=TEXT if ok else MUTED).pack(side="left")
-        status = "Detected" if ok else "Not detected"
-        self._lbl(row, status, size=10, color=color).pack(side="right")
+
+        dot_lbl = self._lbl(row, "\u25cb", size=7, color=MUTED)
+        dot_lbl.pack(side="left", padx=(2, 6))
+
+        self._lbl(row, name, size=12, color=MUTED).pack(side="left")
+
+        status_lbl = self._lbl(row, "Checking...", size=10, color=MUTED)
+        status_lbl.pack(side="right")
+
+        return (dot_lbl, status_lbl)
 
     def _check_row(self, parent, name, var, disabled):
         row = ctk.CTkFrame(parent, fg_color="transparent", height=26)
@@ -198,6 +256,7 @@ class InstallerApp(ctk.CTk):
         if disabled:
             cb.configure(state="disabled")
             var.set(False)
+        return row, cb
 
     # -- Installing --
 
@@ -218,11 +277,11 @@ class InstallerApp(ctk.CTk):
             ("server", "Install MCP server"),
             ("plugin", "Install Studio plugin"),
         ]
-        if self.opt_claude.get():
+        if self._opts["claude"]["var"].get():
             step_defs.append(("claude", "Configure Claude Desktop"))
-        if self.opt_cursor.get():
+        if self._opts["cursor"]["var"].get():
             step_defs.append(("cursor", "Configure Cursor"))
-        if self.opt_claude_code.get():
+        if self._opts["claude_code"]["var"].get():
             step_defs.append(("claude_code", "Configure Claude Code CLI"))
         step_defs.append(("restart", "Restart services"))
 
@@ -255,9 +314,9 @@ class InstallerApp(ctk.CTk):
 
         def do_install():
             results = run_install(
-                install_claude=self.opt_claude.get(),
-                install_cursor=self.opt_cursor.get(),
-                install_claude_code=self.opt_claude_code.get(),
+                install_claude=self._opts["claude"]["var"].get(),
+                install_cursor=self._opts["cursor"]["var"].get(),
+                install_claude_code=self._opts["claude_code"]["var"].get(),
                 on_step=lambda sid, s: self.after(0, lambda: self._update_step(sid, s)),
             )
             self.after(0, lambda: self._show_done(results))
@@ -322,7 +381,7 @@ class InstallerApp(ctk.CTk):
             self._lbl(row, e, size=11, color=ERROR).pack(side="left")
 
         # Claude Code command if not auto-configured
-        if results.get("claude_code_cmd") and not all_failed and not self.opt_claude_code.get():
+        if results.get("claude_code_cmd") and not all_failed and not self._opts["claude_code"]["var"].get():
             self._div(self.main)
             cf = ctk.CTkFrame(self.main, fg_color=BG)
             cf.pack(fill="x", padx=PAD, pady=(10, 0))
