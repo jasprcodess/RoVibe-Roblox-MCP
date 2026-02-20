@@ -259,22 +259,19 @@ class InstallerApp:
 
     # -- Detection --
     def _run_detection(self):
-        plugins = find_studio_plugins()
-        studio_ok = plugins is not None
-        self.detection["studio"] = studio_ok
-        self.root.after(0, lambda: self._update_detect("studio", studio_ok))
-
-        claude_ok = claude_desktop_detected()
-        self.detection["claude"] = claude_ok
-        self.root.after(0, lambda: self._update_detect("claude", claude_ok))
-
-        cursor_ok = cursor_detected()
-        self.detection["cursor"] = cursor_ok
-        self.root.after(0, lambda: self._update_detect("cursor", cursor_ok))
-
-        cc_ok = claude_code_detected()
-        self.detection["claude_code"] = cc_ok
-        self.root.after(0, lambda: self._update_detect("claude_code", cc_ok))
+        checks = [
+            ("studio", lambda: find_studio_plugins() is not None),
+            ("claude", claude_desktop_detected),
+            ("cursor", cursor_detected),
+            ("claude_code", claude_code_detected),
+        ]
+        for key, check_fn in checks:
+            try:
+                ok = check_fn()
+            except Exception:
+                ok = False
+            self.detection[key] = ok
+            self.root.after(0, lambda k=key, v=ok: self._update_detect(k, v))
 
         self.root.after(0, self._detection_done)
 

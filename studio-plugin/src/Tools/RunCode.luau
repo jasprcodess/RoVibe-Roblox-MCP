@@ -243,13 +243,13 @@ local function handleRunCode(args: Types.ToolArgs): string?
 	local changes = {}
 	for inst in after do
 		if before[inst] then
-			local oldProps = propsBefore[inst]
-			if oldProps then
+			local oldSnap = propsBefore[inst]
+			if oldSnap then
 				for _, prop in TRACKED_PROPS do
-					local okOld, oldVal = pcall(function() return oldProps[prop] end)
-					local okNew, newVal = readProp(inst, prop)
-					if okOld and okNew and oldProps[prop] ~= nil then
-						if tostring(oldVal) ~= tostring(newVal) then
+					local oldVal = oldSnap[prop]
+					if oldVal ~= nil then
+						local okNew, newVal = readProp(inst, prop)
+						if okNew and tostring(oldVal) ~= tostring(newVal) then
 							table.insert(changes, {
 								instance = inst,
 								property = prop,
@@ -263,36 +263,48 @@ local function handleRunCode(args: Types.ToolArgs): string?
 		end
 	end
 
-	if #created > 0 or removed > 0 or #changes > 0 then
-		output ..= "\n[SCENE CHANGES]\n"
-		if #created > 0 then
-			output ..= string.format("Created %d instance(s):\n", #created)
-			local limit = math.min(#created, 30)
-			for i = 1, limit do
-				output ..= describeInstance(created[i]) .. "\n"
-			end
-			if #created > limit then
-				output ..= string.format("  ... and %d more\n", #created - limit)
-			end
-		end
-		if removed > 0 then
-			output ..= string.format("Removed %d instance(s)\n", removed)
-		end
-		if #changes > 0 then
-			output ..= string.format("Modified %d property(s):\n", #changes)
-			local limit = math.min(#changes, 50)
-			for i = 1, limit do
-				local c = changes[i]
-				local path = c.instance:GetFullName()
-				output ..= string.format("  %s.%s: %s → %s\n",
-					path, c.property,
-					propToString(c.oldValue), propToString(c.newValue)
-				)
-			end
-			if #changes > limit then
-				output ..= string.format("  ... and %d more changes\n", #changes - limit)
+	-- Always show scene changes section
+	output ..= "\n[SCENE CHANGES]\n"
+
+	if #created > 0 then
+		output ..= string.format("Created %d instance(s):\n", #created)
+		for i = 1, math.min(#created, 50) do
+			local inst = created[i]
+			output ..= describeInstance(inst) .. "\n"
+			-- Show key properties of new instances
+			local newSnap = snapshotProps(inst)
+			for _, prop in TRACKED_PROPS do
+				if newSnap[prop] ~= nil and prop ~= "Name" and prop ~= "Parent" then
+					output ..= string.format("    .%s = %s\n", prop, propToString(newSnap[prop]))
+				end
 			end
 		end
+		if #created > 50 then
+			output ..= string.format("  ... and %d more\n", #created - 50)
+		end
+	end
+
+	if removed > 0 then
+		output ..= string.format("Removed %d instance(s)\n", removed)
+	end
+
+	if #changes > 0 then
+		output ..= string.format("Modified %d property(s):\n", #changes)
+		for i = 1, math.min(#changes, 100) do
+			local c = changes[i]
+			local path = c.instance:GetFullName()
+			output ..= string.format("  %s.%s: %s → %s\n",
+				path, c.property,
+				propToString(c.oldValue), propToString(c.newValue)
+			)
+		end
+		if #changes > 100 then
+			output ..= string.format("  ... and %d more changes\n", #changes - 100)
+		end
+	end
+
+	if #created == 0 and removed == 0 and #changes == 0 then
+		output ..= "No changes detected.\n"
 	end
 
 	return output

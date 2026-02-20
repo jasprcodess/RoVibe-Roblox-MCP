@@ -145,17 +145,7 @@ def _find_claude_cli() -> str | None:
 
 
 def claude_code_detected() -> bool:
-    cli = _find_claude_cli()
-    if not cli:
-        return False
-    try:
-        result = subprocess.run(
-            [cli, "--version"],
-            capture_output=True, text=True, timeout=5,
-        )
-        return result.returncode == 0
-    except Exception:
-        return False
+    return _find_claude_cli() is not None
 
 
 def detect_all() -> dict:
@@ -196,6 +186,11 @@ def run_claude_code_add(exe_path: Path) -> tuple[bool, str]:
     if not cli:
         return False, "claude CLI not found"
     try:
+        # Remove existing entry first (ignore errors if it doesn't exist)
+        subprocess.run(
+            [cli, "mcp", "remove", "RoVibe_Studio"],
+            capture_output=True, text=True, timeout=10,
+        )
         result = subprocess.run(
             [cli, "mcp", "add", "--transport", "stdio", "RoVibe_Studio", "--", str(exe_path), "--stdio"],
             capture_output=True, text=True, timeout=15,
