@@ -64,10 +64,12 @@ fn get_exe_path() -> Result<PathBuf> {
     use core_foundation::url::CFURL;
 
     let local_path = env::current_exe()?;
-    let local_path_cref = CFURL::from_path(local_path, false).unwrap();
+    let local_path_cref = CFURL::from_path(&local_path, false)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Failed to create CFURL from exe path"))?;
     let un_relocated = security_translocate::create_original_path_for_url(local_path_cref.clone())
         .or_else(move |_| Ok::<CFURL, io::Error>(local_path_cref.clone()))?;
-    let ret = un_relocated.to_path().unwrap();
+    let ret = un_relocated.to_path()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Failed to resolve exe path"))?;
     Ok(ret)
 }
 

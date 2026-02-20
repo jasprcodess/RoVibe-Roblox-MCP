@@ -87,33 +87,6 @@ Add to your MCP client config:
 
 The server also includes a system prompt that teaches the AI Roblox's coordinate system (Y is up, position is center of part, etc.), building patterns, and common spatial math. This helps the AI build things correctly without you having to explain it every time.
 
-## Project Structure
-
-```
-.
-├── src/
-│   ├── main.rs              # Entry point, stdio MCP + HTTP bridge
-│   ├── server.rs            # Tool definitions, HTTP handlers, proxy logic
-│   ├── install.rs           # Plugin installer + client config setup
-│   └── error.rs             # Error types
-├── studio-plugin/
-│   ├── src/
-│   │   ├── Main.server.luau          # Plugin entry + tool dispatch
-│   │   ├── MockWebSocketService.luau # HTTP long-polling client
-│   │   ├── Types.luau                # Type definitions
-│   │   ├── Tools/                    # One file per tool
-│   │   └── Utils/                    # Shared utilities
-│   └── default.project.json          # Rojo build config
-├── installer/
-│   ├── installer.py           # GUI installer (CustomTkinter)
-│   ├── installer_logic.py     # Install logic, file ops, config writing
-│   ├── requirements.txt       # Python dependencies
-│   └── build_installer.bat    # PyInstaller build script
-├── build.rs                           # Compiles plugin via Rojo at build time
-├── Cargo.toml
-└── .github/workflows/build.yml       # CI, Windows + macOS builds + releases
-```
-
 ## Acknowledgments
 
 Originally forked from [Roblox/studio-rust-mcp-server](https://github.com/Roblox/studio-rust-mcp-server). We've since rewritten large parts of the codebase but the core architecture comes from their work.

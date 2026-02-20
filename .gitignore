@@ -3,4 +3,15 @@ target/
 *.pdb
 .idea/
 .vs/
+.vscode/
 output/
+*.exe
+!installer/build_installer.bat
+__pycache__/
+*.pyc
+dist/
+build/
+*.spec
+.env
+*.log
+nul

@@ -28,6 +28,12 @@ core-foundation = "0.10.0"
 [build-dependencies]
 rojo = "7.6.1"
 
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "z"
+
 [package.metadata.bundle]
 name = "RoVibeRobloxMCP"
 description = "RoVibe Roblox MCP - connects AI assistants to Roblox Studio"

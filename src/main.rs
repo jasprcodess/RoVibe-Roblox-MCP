@@ -1,3 +1,4 @@
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post};
 use clap::Parser;
 use color_eyre::eyre::Result;
@@ -52,6 +53,7 @@ async fn main() -> Result<()> {
             .route("/request", get(request_handler))
             .route("/response", post(response_handler))
             .route("/proxy", post(proxy_handler))
+            .layer(DefaultBodyLimit::max(10 * 1024 * 1024)) // 10MB
             .with_state(server_state_clone);
         tracing::info!("This MCP instance is HTTP server listening on {STUDIO_PLUGIN_PORT}");
         tokio::spawn(async {

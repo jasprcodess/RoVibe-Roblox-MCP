@@ -129,12 +129,29 @@ def cursor_detected() -> bool:
     return p is not None and p.parent.exists()
 
 
+def _find_claude_cli() -> str | None:
+    """Find the claude CLI executable path."""
+    path = shutil.which("claude")
+    if path:
+        return path
+    if sys.platform == "win32":
+        for candidate in [
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "claude-code" / "claude.exe",
+            Path(os.environ.get("APPDATA", "")) / "npm" / "claude.cmd",
+        ]:
+            if candidate.exists():
+                return str(candidate)
+    return None
+
+
 def claude_code_detected() -> bool:
+    cli = _find_claude_cli()
+    if not cli:
+        return False
     try:
         result = subprocess.run(
-            ["claude", "--version"],
+            [cli, "--version"],
             capture_output=True, text=True, timeout=5,
-            shell=(sys.platform == "win32"),
         )
         return result.returncode == 0
     except Exception:
@@ -175,17 +192,17 @@ def upsert_mcp_config(config_path: Path, exe_path: Path) -> bool:
 
 
 def run_claude_code_add(exe_path: Path) -> tuple[bool, str]:
+    cli = _find_claude_cli()
+    if not cli:
+        return False, "claude CLI not found"
     try:
         result = subprocess.run(
-            ["claude", "mcp", "add", "--transport", "stdio", "RoVibe_Studio", "--", str(exe_path), "--stdio"],
+            [cli, "mcp", "add", "--transport", "stdio", "RoVibe_Studio", "--", str(exe_path), "--stdio"],
             capture_output=True, text=True, timeout=15,
-            shell=(sys.platform == "win32"),
         )
         if result.returncode == 0:
             return True, "Added to Claude Code"
         return False, result.stderr.strip() or "Unknown error"
-    except FileNotFoundError:
-        return False, "claude CLI not found"
     except Exception as e:
         return False, str(e)
 
