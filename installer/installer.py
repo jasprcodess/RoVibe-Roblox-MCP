@@ -1,8 +1,9 @@
-"""RoVibe MCP Installer."""
+"""RoVibe MCP Installer - pure tkinter, no external GUI deps."""
 
 import sys
 import threading
-import customtkinter as ctk
+import tkinter as tk
+from tkinter import font as tkfont
 from installer_logic import (
     find_studio_plugins, is_studio_running,
     claude_desktop_detected, cursor_detected, claude_code_detected,
@@ -14,343 +15,363 @@ BG = "#0e0e0e"
 SURFACE = "#161616"
 BORDER = "#252525"
 ACCENT = "#2d57fc"
-ACCENT_DIM = "#1a3ab0"
+ACCENT_HOVER = "#4970ff"
 TEXT = "#e0e0e0"
 MUTED = "#585858"
 SUCCESS = "#3dbf5e"
-ERROR = "#d44"
-WARN = "#c90"
+ERROR = "#dd4444"
+WARN = "#cc9900"
 
 W = 400
 H = 440
 PAD = 20
 
-FONT = "Segoe UI"
-MONO = "Consolas"
 
-
-class InstallerApp(ctk.CTk):
+class InstallerApp:
     def __init__(self):
-        super().__init__()
-
-        ctk.set_appearance_mode("dark")
-        self.overrideredirect(True)
-        self.geometry(f"{W}x{H}")
-        self.resizable(False, False)
-        self.configure(fg_color=BG)
+        self.root = tk.Tk()
+        self.root.withdraw()  # hide until ready
+        self.root.title("RoVibe Installer")
+        self.root.configure(bg=BG)
+        self.root.overrideredirect(True)
+        self.root.resizable(False, False)
 
         # Center on screen
-        self.update_idletasks()
-        x = (self.winfo_screenwidth() - W) // 2
-        y = (self.winfo_screenheight() - H) // 2
-        self.geometry(f"{W}x{H}+{x}+{y}")
+        x = (self.root.winfo_screenwidth() - W) // 2
+        y = (self.root.winfo_screenheight() - H) // 2
+        self.root.geometry(f"{W}x{H}+{x}+{y}")
 
-        # Custom titlebar
+        # Fonts
+        self.fn = tkfont.Font(family="Segoe UI", size=12)
+        self.fn_sm = tkfont.Font(family="Segoe UI", size=10)
+        self.fn_xs = tkfont.Font(family="Segoe UI", size=9)
+        self.fn_lg = tkfont.Font(family="Segoe UI", size=22, weight="bold")
+        self.fn_md = tkfont.Font(family="Segoe UI", size=18, weight="bold")
+        self.fn_btn = tkfont.Font(family="Segoe UI", size=13, weight="bold")
+        self.fn_mono = tkfont.Font(family="Consolas", size=10)
+
+        # State
+        self.detection = {}
+        self._detect_labels = {}
+        self._opt_vars = {}
+        self._opt_cbs = {}
+        self.step_rows = {}
         self._drag_x = 0
         self._drag_y = 0
-        tb = ctk.CTkFrame(self, fg_color=SURFACE, height=36, corner_radius=0)
+
+        # Custom titlebar
+        tb = tk.Frame(self.root, bg=SURFACE, height=36)
         tb.pack(fill="x")
         tb.pack_propagate(False)
         tb.bind("<Button-1>", self._start_drag)
         tb.bind("<B1-Motion>", self._do_drag)
 
-        title_lbl = ctk.CTkLabel(
-            tb, text="RoVibe Installer", text_color=MUTED,
-            font=ctk.CTkFont(family=FONT, size=12),
-        )
+        title_lbl = tk.Label(tb, text="RoVibe Installer", bg=SURFACE, fg=MUTED, font=self.fn_sm)
         title_lbl.pack(side="left", padx=12)
         title_lbl.bind("<Button-1>", self._start_drag)
         title_lbl.bind("<B1-Motion>", self._do_drag)
 
-        close_btn = ctk.CTkButton(
-            tb, text="\u00d7", width=36, height=36, corner_radius=0,
-            fg_color="transparent", hover_color="#ff4444",
-            text_color=MUTED, font=ctk.CTkFont(size=16),
-            command=self.destroy,
-        )
+        close_btn = tk.Label(tb, text="\u00d7", bg=SURFACE, fg=MUTED, font=("Segoe UI", 16), width=3, cursor="hand2")
         close_btn.pack(side="right")
+        close_btn.bind("<Button-1>", lambda e: self.root.destroy())
+        close_btn.bind("<Enter>", lambda e: close_btn.configure(bg="#ff4444", fg="#fff"))
+        close_btn.bind("<Leave>", lambda e: close_btn.configure(bg=SURFACE, fg=MUTED))
 
-        # Border line under titlebar
-        ctk.CTkFrame(self, fg_color=BORDER, height=1, corner_radius=0).pack(fill="x")
+        # Border under titlebar
+        tk.Frame(self.root, bg=BORDER, height=1).pack(fill="x")
 
-        # Main content area
-        self.main = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        # Main content
+        self.main = tk.Frame(self.root, bg=BG)
         self.main.pack(fill="both", expand=True)
 
-        self.step_rows = {}
-        self.detection = {"studio": False, "studio_running": False, "claude": False, "cursor": False, "claude_code": False}
-        self._detect_labels = {}
-        self._opts = {}
-
-        # Show main UI immediately with "checking..." placeholders
+        # Build UI skeleton immediately
         self._show_main_skeleton()
 
-        # Detect each item in background, update UI as each finishes
+        # Show window
+        self.root.deiconify()
+
+        # Detect in background
         threading.Thread(target=self._run_detection, daemon=True).start()
 
+    def run(self):
+        self.root.mainloop()
+
+    # -- Drag --
     def _start_drag(self, e):
-        self._drag_x = e.x_root - self.winfo_x()
-        self._drag_y = e.y_root - self.winfo_y()
+        self._drag_x = e.x_root - self.root.winfo_x()
+        self._drag_y = e.y_root - self.root.winfo_y()
 
     def _do_drag(self, e):
-        self.geometry(f"+{e.x_root - self._drag_x}+{e.y_root - self._drag_y}")
+        self.root.geometry(f"+{e.x_root - self._drag_x}+{e.y_root - self._drag_y}")
 
+    # -- Helpers --
     def _clear(self):
         for w in self.main.winfo_children():
             w.destroy()
 
-    def _lbl(self, parent, text, size=12, color=TEXT, weight="normal", **kw):
-        return ctk.CTkLabel(
-            parent, text=text, text_color=color,
-            font=ctk.CTkFont(family=FONT, size=size, weight=weight), **kw,
-        )
-
     def _div(self, parent):
-        ctk.CTkFrame(parent, fg_color=BORDER, height=1, corner_radius=0).pack(fill="x", padx=PAD)
+        tk.Frame(parent, bg=BORDER, height=1).pack(fill="x", padx=PAD)
 
-    # -- Main Screen (shown instantly) --
+    def _make_btn(self, parent, text, command, state="normal"):
+        btn_frame = tk.Frame(parent, bg=ACCENT, cursor="hand2" if state == "normal" else "")
+        lbl = tk.Label(btn_frame, text=text, bg=ACCENT, fg="#fff", font=self.fn_btn, pady=8)
+        lbl.pack(fill="x")
 
+        def on_click(e=None):
+            if btn_frame._state == "normal":
+                command()
+
+        def on_enter(e):
+            if btn_frame._state == "normal":
+                btn_frame.configure(bg=ACCENT_HOVER)
+                lbl.configure(bg=ACCENT_HOVER)
+
+        def on_leave(e):
+            c = ACCENT if btn_frame._state == "normal" else SURFACE
+            btn_frame.configure(bg=c)
+            lbl.configure(bg=c)
+
+        btn_frame._state = state
+        btn_frame._lbl = lbl
+        if state == "disabled":
+            btn_frame.configure(bg=SURFACE)
+            lbl.configure(bg=SURFACE, fg=MUTED)
+
+        lbl.bind("<Button-1>", on_click)
+        btn_frame.bind("<Button-1>", on_click)
+        lbl.bind("<Enter>", on_enter)
+        lbl.bind("<Leave>", on_leave)
+        btn_frame.bind("<Enter>", on_enter)
+        btn_frame.bind("<Leave>", on_leave)
+
+        def set_state(s):
+            btn_frame._state = s
+            if s == "normal":
+                btn_frame.configure(bg=ACCENT, cursor="hand2")
+                lbl.configure(bg=ACCENT, fg="#fff")
+            else:
+                btn_frame.configure(bg=SURFACE, cursor="")
+                lbl.configure(bg=SURFACE, fg=MUTED)
+
+        def set_text(t):
+            lbl.configure(text=t)
+
+        btn_frame.set_state = set_state
+        btn_frame.set_text = set_text
+        return btn_frame
+
+    # -- Main Screen --
     def _show_main_skeleton(self):
-        d = self.detection
-
         # Header
-        hdr = ctk.CTkFrame(self.main, fg_color=BG)
-        hdr.pack(fill="x", padx=PAD, pady=(16, 0))
-        self._lbl(hdr, "RoVibe", size=22, weight="bold", color="#fff").pack(side="left")
-        self._lbl(hdr, "MCP", size=12, color=MUTED).pack(side="left", padx=(8, 0), pady=(6, 0))
+        hdr = tk.Frame(self.main, bg=BG)
+        hdr.pack(fill="x", padx=PAD, pady=(16, 8))
+        tk.Label(hdr, text="RoVibe", bg=BG, fg="#fff", font=self.fn_lg).pack(side="left")
+        tk.Label(hdr, text="MCP", bg=BG, fg=MUTED, font=self.fn_sm).pack(side="left", padx=(8, 0), pady=(8, 0))
 
         self._div(self.main)
 
-        # Detection results (all show "Checking..." initially)
-        det = ctk.CTkFrame(self.main, fg_color=BG)
-        det.pack(fill="x", padx=PAD, pady=(12, 0))
-        self._lbl(det, "STATUS", size=9, color=MUTED).pack(anchor="w")
+        # Status section
+        det = tk.Frame(self.main, bg=BG)
+        det.pack(fill="x", padx=PAD, pady=(10, 0))
+        tk.Label(det, text="STATUS", bg=BG, fg=MUTED, font=self.fn_xs).pack(anchor="w")
 
         self._detect_labels["studio"] = self._status_row(det, "Roblox Studio")
-        self._studio_warn = self._lbl(det, "  Will be closed during install", size=10, color=WARN)
-        # Hidden by default
+        self._studio_warn = tk.Label(det, text="  Will be closed during install", bg=BG, fg=WARN, font=self.fn_sm)
         self._detect_labels["claude"] = self._status_row(det, "Claude Desktop")
         self._detect_labels["cursor"] = self._status_row(det, "Cursor")
         self._detect_labels["claude_code"] = self._status_row(det, "Claude Code CLI")
 
-        # Configure checkboxes
+        # Configure section
         self._div(self.main)
-        opts = ctk.CTkFrame(self.main, fg_color=BG)
-        opts.pack(fill="x", padx=PAD, pady=(12, 0))
-        self._lbl(opts, "CONFIGURE", size=9, color=MUTED).pack(anchor="w")
+        opts = tk.Frame(self.main, bg=BG)
+        opts.pack(fill="x", padx=PAD, pady=(10, 0))
+        tk.Label(opts, text="CONFIGURE", bg=BG, fg=MUTED, font=self.fn_xs).pack(anchor="w")
 
-        self._opts["claude"] = {"var": ctk.BooleanVar(value=False), "frame": None, "cb": None}
-        self._opts["cursor"] = {"var": ctk.BooleanVar(value=False), "frame": None, "cb": None}
-        self._opts["claude_code"] = {"var": ctk.BooleanVar(value=False), "frame": None, "cb": None}
-
-        self._opts["claude"]["frame"], self._opts["claude"]["cb"] = self._check_row(opts, "Claude Desktop", self._opts["claude"]["var"], disabled=True)
-        self._opts["cursor"]["frame"], self._opts["cursor"]["cb"] = self._check_row(opts, "Cursor", self._opts["cursor"]["var"], disabled=True)
-        self._opts["claude_code"]["frame"], self._opts["claude_code"]["cb"] = self._check_row(opts, "Claude Code CLI", self._opts["claude_code"]["var"], disabled=True)
+        for key, name in [("claude", "Claude Desktop"), ("cursor", "Cursor"), ("claude_code", "Claude Code CLI")]:
+            self._opt_vars[key] = tk.BooleanVar(value=False)
+            row = tk.Frame(opts, bg=BG)
+            row.pack(fill="x", pady=1)
+            cb = tk.Checkbutton(
+                row, text=name, variable=self._opt_vars[key],
+                bg=BG, fg=MUTED, selectcolor=SURFACE,
+                activebackground=BG, activeforeground=TEXT,
+                font=self.fn, disabledforeground=MUTED,
+                state="disabled", anchor="w",
+            )
+            cb.pack(side="left")
+            self._opt_cbs[key] = cb
 
         # Spacer
-        ctk.CTkFrame(self.main, fg_color="transparent").pack(fill="both", expand=True)
+        tk.Frame(self.main, bg=BG).pack(fill="both", expand=True)
 
-        # Studio required error (hidden initially)
-        self._bot = ctk.CTkFrame(self.main, fg_color=BG)
-        self._bot.pack(fill="x", padx=PAD, pady=(0, PAD))
+        # Bottom
+        bot = tk.Frame(self.main, bg=BG)
+        bot.pack(fill="x", padx=PAD, pady=(0, PAD))
 
-        self._studio_err_lbl = self._lbl(self._bot, "Roblox Studio is required", size=10, color=ERROR)
-        # hidden initially
+        self._studio_err = tk.Label(bot, text="Roblox Studio is required", bg=BG, fg=ERROR, font=self.fn_sm)
 
-        self.install_btn = ctk.CTkButton(
-            self._bot, text="Install", height=38,
-            font=ctk.CTkFont(family=FONT, size=13, weight="bold"),
-            fg_color=ACCENT, hover_color=ACCENT_DIM, text_color="#fff",
-            corner_radius=6, command=self._on_install,
-            state="disabled",
-        )
+        self.install_btn = self._make_btn(bot, "Install", self._on_install, state="disabled")
         self.install_btn.pack(fill="x")
 
+    def _status_row(self, parent, name):
+        row = tk.Frame(parent, bg=BG, height=22)
+        row.pack(fill="x", pady=1)
+        row.pack_propagate(False)
+
+        dot = tk.Label(row, text="\u25cb", bg=BG, fg=MUTED, font=("Segoe UI", 7))
+        dot.pack(side="left", padx=(2, 6))
+
+        tk.Label(row, text=name, bg=BG, fg=MUTED, font=self.fn).pack(side="left")
+
+        status = tk.Label(row, text="Checking...", bg=BG, fg=MUTED, font=self.fn_sm)
+        status.pack(side="right")
+
+        return (dot, status)
+
+    # -- Detection --
     def _run_detection(self):
-        # Detect each item individually and update UI immediately
         plugins = find_studio_plugins()
         studio_ok = plugins is not None
         self.detection["studio"] = studio_ok
-        self.after(0, lambda: self._update_detect("studio", studio_ok))
+        self.root.after(0, lambda: self._update_detect("studio", studio_ok))
 
         if studio_ok:
             running = is_studio_running()
             self.detection["studio_running"] = running
-            self.after(0, lambda: self._show_studio_warn(running))
+            if running:
+                self.root.after(0, lambda: self._studio_warn.pack(anchor="w"))
 
         claude_ok = claude_desktop_detected()
         self.detection["claude"] = claude_ok
-        self.after(0, lambda: self._update_detect("claude", claude_ok))
+        self.root.after(0, lambda: self._update_detect("claude", claude_ok))
 
         cursor_ok = cursor_detected()
         self.detection["cursor"] = cursor_ok
-        self.after(0, lambda: self._update_detect("cursor", cursor_ok))
+        self.root.after(0, lambda: self._update_detect("cursor", cursor_ok))
 
         cc_ok = claude_code_detected()
         self.detection["claude_code"] = cc_ok
-        self.after(0, lambda: self._update_detect("claude_code", cc_ok))
+        self.root.after(0, lambda: self._update_detect("claude_code", cc_ok))
 
-        # Enable install button if studio found
-        self.after(0, self._detection_done)
+        self.root.after(0, self._detection_done)
 
     def _update_detect(self, key, ok):
-        """Update a single detection row from checking -> result."""
         if key not in self._detect_labels:
             return
-        dot_lbl, status_lbl = self._detect_labels[key]
-        dot = "\u25cf" if ok else "\u25cb"
-        color = SUCCESS if ok else MUTED
-        dot_lbl.configure(text=dot, text_color=color)
-        status_lbl.configure(text="Detected" if ok else "Not detected", text_color=color)
+        dot, status = self._detect_labels[key]
+        dot.configure(text="\u25cf" if ok else "\u25cb", fg=SUCCESS if ok else MUTED)
+        status.configure(text="Detected" if ok else "Not detected", fg=SUCCESS if ok else MUTED)
 
-        # Update matching checkbox if exists
-        if key in self._opts:
-            opt = self._opts[key]
+        if key in self._opt_cbs:
             if ok:
-                opt["var"].set(True)
-                opt["cb"].configure(state="normal", text_color=TEXT)
+                self._opt_vars[key].set(True)
+                self._opt_cbs[key].configure(state="normal", fg=TEXT)
             else:
-                opt["var"].set(False)
-                opt["cb"].configure(state="disabled", text_color=MUTED)
-
-    def _show_studio_warn(self, running):
-        if running:
-            self._studio_warn.pack(anchor="w")
-        else:
-            self._studio_warn.pack_forget()
+                self._opt_vars[key].set(False)
+                self._opt_cbs[key].configure(state="disabled", fg=MUTED)
 
     def _detection_done(self):
-        if self.detection["studio"]:
-            self.install_btn.configure(state="normal")
+        if self.detection.get("studio"):
+            self.install_btn.set_state("normal")
         else:
-            self._studio_err_lbl.pack(pady=(0, 6))
-
-    def _status_row(self, parent, name):
-        row = ctk.CTkFrame(parent, fg_color="transparent", height=22)
-        row.pack(fill="x", pady=1)
-        row.pack_propagate(False)
-
-        dot_lbl = self._lbl(row, "\u25cb", size=7, color=MUTED)
-        dot_lbl.pack(side="left", padx=(2, 6))
-
-        self._lbl(row, name, size=12, color=MUTED).pack(side="left")
-
-        status_lbl = self._lbl(row, "Checking...", size=10, color=MUTED)
-        status_lbl.pack(side="right")
-
-        return (dot_lbl, status_lbl)
-
-    def _check_row(self, parent, name, var, disabled):
-        row = ctk.CTkFrame(parent, fg_color="transparent", height=26)
-        row.pack(fill="x", pady=1)
-        row.pack_propagate(False)
-        cb = ctk.CTkCheckBox(
-            row, text=name, variable=var,
-            font=ctk.CTkFont(family=FONT, size=12),
-            text_color=MUTED if disabled else TEXT,
-            fg_color=ACCENT, hover_color=ACCENT_DIM,
-            border_color=BORDER, checkmark_color="#fff",
-            corner_radius=3, border_width=2, height=18, width=18,
-        )
-        cb.pack(side="left", padx=2)
-        if disabled:
-            cb.configure(state="disabled")
-            var.set(False)
-        return row, cb
+            self._studio_err.pack(pady=(0, 6))
 
     # -- Installing --
-
     def _on_install(self):
-        self.install_btn.configure(state="disabled", text="Installing...")
+        self.install_btn.set_state("disabled")
+        self.install_btn.set_text("Installing...")
         self._clear()
 
-        hdr = ctk.CTkFrame(self.main, fg_color=BG)
-        hdr.pack(fill="x", padx=PAD, pady=(16, 0))
-        self._lbl(hdr, "Installing", size=18, weight="bold", color="#fff").pack(side="left")
+        hdr = tk.Frame(self.main, bg=BG)
+        hdr.pack(fill="x", padx=PAD, pady=(16, 8))
+        tk.Label(hdr, text="Installing", bg=BG, fg="#fff", font=self.fn_md).pack(side="left")
 
         self._div(self.main)
 
-        sf = ctk.CTkFrame(self.main, fg_color=BG)
-        sf.pack(fill="x", padx=PAD, pady=(12, 0))
+        sf = tk.Frame(self.main, bg=BG)
+        sf.pack(fill="x", padx=PAD, pady=(10, 0))
 
-        step_defs = [
-            ("server", "Install MCP server"),
-            ("plugin", "Install Studio plugin"),
-        ]
-        if self._opts["claude"]["var"].get():
+        step_defs = [("server", "Install MCP server"), ("plugin", "Install Studio plugin")]
+        if self._opt_vars["claude"].get():
             step_defs.append(("claude", "Configure Claude Desktop"))
-        if self._opts["cursor"]["var"].get():
+        if self._opt_vars["cursor"].get():
             step_defs.append(("cursor", "Configure Cursor"))
-        if self._opts["claude_code"]["var"].get():
+        if self._opt_vars["claude_code"].get():
             step_defs.append(("claude_code", "Configure Claude Code CLI"))
         step_defs.append(("restart", "Restart services"))
 
         self.step_rows = {}
         for sid, label in step_defs:
-            row = ctk.CTkFrame(sf, fg_color="transparent", height=26)
+            row = tk.Frame(sf, bg=BG, height=24)
             row.pack(fill="x", pady=1)
             row.pack_propagate(False)
 
-            ind = self._lbl(row, "\u25cb", size=8, color=MUTED)
+            ind = tk.Label(row, text="\u25cb", bg=BG, fg=MUTED, font=("Segoe UI", 8))
             ind.pack(side="left", padx=(2, 8))
 
-            txt = self._lbl(row, label, size=12, color=MUTED)
+            txt = tk.Label(row, text=label, bg=BG, fg=MUTED, font=self.fn)
             txt.pack(side="left")
 
-            st = self._lbl(row, "", size=10, color=MUTED)
+            st = tk.Label(row, text="", bg=BG, fg=MUTED, font=self.fn_sm)
             st.pack(side="right")
 
             self.step_rows[sid] = (ind, txt, st)
 
-        ctk.CTkFrame(self.main, fg_color="transparent").pack(fill="both", expand=True)
-
-        self.progress = ctk.CTkProgressBar(
-            self.main, fg_color=SURFACE, progress_color=ACCENT,
-            height=2, corner_radius=0,
-        )
-        self.progress.pack(fill="x", side="bottom")
-        self.progress.configure(mode="indeterminate")
-        self.progress.start()
+        # Progress bar (simple animated)
+        tk.Frame(self.main, bg=BG).pack(fill="both", expand=True)
+        self._progress_frame = tk.Frame(self.main, bg=SURFACE, height=3)
+        self._progress_frame.pack(fill="x", side="bottom")
+        self._progress_bar = tk.Frame(self._progress_frame, bg=ACCENT, height=3, width=0)
+        self._progress_bar.place(x=0, y=0, height=3)
+        self._progress_pos = 0
+        self._progress_running = True
+        self._animate_progress()
 
         def do_install():
             results = run_install(
-                install_claude=self._opts["claude"]["var"].get(),
-                install_cursor=self._opts["cursor"]["var"].get(),
-                install_claude_code=self._opts["claude_code"]["var"].get(),
-                on_step=lambda sid, s: self.after(0, lambda: self._update_step(sid, s)),
+                install_claude=self._opt_vars["claude"].get(),
+                install_cursor=self._opt_vars["cursor"].get(),
+                install_claude_code=self._opt_vars["claude_code"].get(),
+                on_step=lambda sid, s: self.root.after(0, lambda: self._update_step(sid, s)),
             )
-            self.after(0, lambda: self._show_done(results))
+            self.root.after(0, lambda: self._show_done(results))
 
         threading.Thread(target=do_install, daemon=True).start()
+
+    def _animate_progress(self):
+        if not self._progress_running:
+            return
+        self._progress_pos = (self._progress_pos + 3) % (W + 80)
+        x = self._progress_pos - 80
+        self._progress_bar.place(x=x, width=80, height=3)
+        self.root.after(16, self._animate_progress)
 
     def _update_step(self, step_id, status):
         if step_id not in self.step_rows:
             return
         ind, txt, st = self.step_rows[step_id]
         if status == "working":
-            ind.configure(text="\u25c9", text_color=ACCENT)
-            txt.configure(text_color=TEXT)
+            ind.configure(text="\u25c9", fg=ACCENT)
+            txt.configure(fg=TEXT)
         elif status == "done":
-            ind.configure(text="\u25cf", text_color=SUCCESS)
-            txt.configure(text_color=TEXT)
-            st.configure(text="Done", text_color=SUCCESS)
+            ind.configure(text="\u25cf", fg=SUCCESS)
+            txt.configure(fg=TEXT)
+            st.configure(text="Done", fg=SUCCESS)
         elif status == "error":
-            ind.configure(text="\u25cf", text_color=ERROR)
-            txt.configure(text_color=TEXT)
-            st.configure(text="Failed", text_color=ERROR)
+            ind.configure(text="\u25cf", fg=ERROR)
+            txt.configure(fg=TEXT)
+            st.configure(text="Failed", fg=ERROR)
 
-    # -- Done Screen --
-
+    # -- Done --
     def _show_done(self, results):
-        self.progress.stop()
-        self.progress.pack_forget()
+        self._progress_running = False
         self._clear()
 
         has_errors = len(results.get("errors", [])) > 0
         all_failed = len(results.get("steps", [])) == 0
 
-        hdr = ctk.CTkFrame(self.main, fg_color=BG)
-        hdr.pack(fill="x", padx=PAD, pady=(16, 0))
+        hdr = tk.Frame(self.main, bg=BG)
+        hdr.pack(fill="x", padx=PAD, pady=(16, 8))
 
         if all_failed:
             title, tc = "Installation failed", ERROR
@@ -359,74 +380,68 @@ class InstallerApp(ctk.CTk):
         else:
             title, tc = "Installed", SUCCESS
 
-        self._lbl(hdr, title, size=18, weight="bold", color=tc).pack(side="left")
+        tk.Label(hdr, text=title, bg=BG, fg=tc, font=self.fn_md).pack(side="left")
 
         self._div(self.main)
 
-        rf = ctk.CTkFrame(self.main, fg_color=BG)
-        rf.pack(fill="x", padx=PAD, pady=(12, 0))
+        rf = tk.Frame(self.main, bg=BG)
+        rf.pack(fill="x", padx=PAD, pady=(10, 0))
 
         for s in results.get("steps", []):
-            row = ctk.CTkFrame(rf, fg_color="transparent", height=20)
+            row = tk.Frame(rf, bg=BG, height=20)
             row.pack(fill="x", pady=1)
             row.pack_propagate(False)
-            self._lbl(row, "\u25cf", size=7, color=SUCCESS).pack(side="left", padx=(2, 6))
-            self._lbl(row, s, size=11, color=TEXT).pack(side="left")
+            tk.Label(row, text="\u25cf", bg=BG, fg=SUCCESS, font=("Segoe UI", 7)).pack(side="left", padx=(2, 6))
+            tk.Label(row, text=s, bg=BG, fg=TEXT, font=self.fn_sm).pack(side="left")
 
         for e in results.get("errors", []):
-            row = ctk.CTkFrame(rf, fg_color="transparent", height=20)
+            row = tk.Frame(rf, bg=BG, height=20)
             row.pack(fill="x", pady=1)
             row.pack_propagate(False)
-            self._lbl(row, "\u25cf", size=7, color=ERROR).pack(side="left", padx=(2, 6))
-            self._lbl(row, e, size=11, color=ERROR).pack(side="left")
+            tk.Label(row, text="\u25cf", bg=BG, fg=ERROR, font=("Segoe UI", 7)).pack(side="left", padx=(2, 6))
+            tk.Label(row, text=e, bg=BG, fg=ERROR, font=self.fn_sm).pack(side="left")
 
-        # Claude Code command if not auto-configured
-        if results.get("claude_code_cmd") and not all_failed and not self._opts["claude_code"]["var"].get():
+        # Claude Code command
+        if results.get("claude_code_cmd") and not all_failed and not self._opt_vars["claude_code"].get():
             self._div(self.main)
-            cf = ctk.CTkFrame(self.main, fg_color=BG)
-            cf.pack(fill="x", padx=PAD, pady=(10, 0))
-            self._lbl(cf, "CLAUDE CODE", size=9, color=MUTED).pack(anchor="w")
+            cf = tk.Frame(self.main, bg=BG)
+            cf.pack(fill="x", padx=PAD, pady=(8, 0))
+            tk.Label(cf, text="CLAUDE CODE", bg=BG, fg=MUTED, font=self.fn_xs).pack(anchor="w")
 
-            cmd_bg = ctk.CTkFrame(cf, fg_color=SURFACE, corner_radius=4)
+            cmd_bg = tk.Frame(cf, bg=SURFACE)
             cmd_bg.pack(fill="x", pady=(4, 0))
-            ctk.CTkLabel(
-                cmd_bg, text=results["claude_code_cmd"],
-                text_color=MUTED, font=ctk.CTkFont(family=MONO, size=10),
-                wraplength=W - 70, justify="left", anchor="w",
+            tk.Label(
+                cmd_bg, text=results["claude_code_cmd"], bg=SURFACE, fg=MUTED,
+                font=self.fn_mono, wraplength=W - 70, justify="left", anchor="w",
             ).pack(padx=10, pady=8, anchor="w", fill="x")
 
-            def copy_cmd():
-                self.clipboard_clear()
-                self.clipboard_append(results["claude_code_cmd"])
-                copy_btn.configure(text="Copied")
-                self.after(1500, lambda: copy_btn.configure(text="Copy"))
+            copy_lbl = tk.Label(cf, text="Copy", bg=SURFACE, fg=MUTED, font=self.fn_sm, cursor="hand2", padx=8, pady=2)
+            copy_lbl.pack(anchor="e", pady=(4, 0))
 
-            copy_btn = ctk.CTkButton(
-                cf, text="Copy", height=24, width=50,
-                font=ctk.CTkFont(family=FONT, size=10),
-                fg_color=SURFACE, hover_color=BORDER,
-                text_color=MUTED, corner_radius=4,
-                command=copy_cmd,
-            )
-            copy_btn.pack(anchor="e", pady=(4, 0))
+            def copy_cmd(e=None):
+                self.root.clipboard_clear()
+                self.root.clipboard_append(results["claude_code_cmd"])
+                copy_lbl.configure(text="Copied")
+                self.root.after(1500, lambda: copy_lbl.configure(text="Copy"))
 
-        ctk.CTkFrame(self.main, fg_color="transparent").pack(fill="both", expand=True)
+            copy_lbl.bind("<Button-1>", copy_cmd)
+
+        tk.Frame(self.main, bg=BG).pack(fill="both", expand=True)
 
         if not all_failed:
-            nf = ctk.CTkFrame(self.main, fg_color=BG)
-            nf.pack(fill="x", padx=PAD, pady=(0, 6))
-            self._lbl(nf, "Restart your AI client, then open Studio.", size=10, color=MUTED).pack(anchor="w")
+            tk.Label(self.main, text="Restart your AI client, then open Studio.", bg=BG, fg=MUTED, font=self.fn_sm).pack(padx=PAD, anchor="w", pady=(0, 4))
 
-        bot = ctk.CTkFrame(self.main, fg_color=BG)
+        bot = tk.Frame(self.main, bg=BG)
         bot.pack(fill="x", padx=PAD, pady=(0, PAD))
-        ctk.CTkButton(
-            bot, text="Done", height=38,
-            font=ctk.CTkFont(family=FONT, size=13, weight="bold"),
-            fg_color=ACCENT, hover_color=ACCENT_DIM, text_color="#fff",
-            corner_radius=6, command=self.destroy,
-        ).pack(fill="x")
+        self._make_btn(bot, "Done", self.root.destroy).pack(fill="x")
 
 
 if __name__ == "__main__":
-    app = InstallerApp()
-    app.mainloop()
+    try:
+        app = InstallerApp()
+        app.run()
+    except Exception:
+        # If GUI fails, fall back to basic message
+        import traceback
+        traceback.print_exc()
+        input("Press Enter to exit...")

@@ -42,12 +42,12 @@ jobs:
           python-version: "3.12"
       - name: Build GUI installer
         run: |
-          pip install customtkinter pyinstaller Pillow
+          pip install pyinstaller
           copy output\rovibe-mcp.exe installer\rovibe-mcp.exe
           copy output\MCPStudioPlugin.rbxm installer\MCPStudioPlugin.rbxm
           copy assets\logo.ico installer\logo.ico
           cd installer
-          pyinstaller --onefile --noconsole --name "RoVibe-Installer" --icon=logo.ico --add-data "rovibe-mcp.exe;." --add-data "MCPStudioPlugin.rbxm;." --hidden-import customtkinter --collect-all customtkinter installer.py
+          pyinstaller --onefile --noconsole --name "RoVibe-Installer" --icon=logo.ico --add-data "rovibe-mcp.exe;." --add-data "MCPStudioPlugin.rbxm;." installer.py
           copy dist\RoVibe-Installer.exe ..\output\RoVibe-Installer.exe
         shell: cmd
       - name: Upload artifact
