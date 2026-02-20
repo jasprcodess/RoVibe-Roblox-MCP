@@ -17,7 +17,9 @@ That's it. The installer handles the plugin, config files, and everything else.
 ## What This Does
 
 This is a bridge between AI apps (Claude, Cursor, etc.) and Roblox Studio. You talk to the AI, it sends commands through this server, and the Studio plugin executes them. You can build things, inspect your game, run code, and more.
-<img width="400" height="440" alt="RoVibe-Installer_(1)_hdGRjqzYxB" src="https://github.com/user-attachments/assets/3c993b8d-621c-40c1-b4f2-e72780787a66" />
+<p align="center">
+  <img width="400" height="440" alt="RoVibe-Installer_(1)_hdGRjqzYxB" src="https://github.com/user-attachments/assets/3c993b8d-621c-40c1-b4f2-e72780787a66" />
+</p>
 
 
 ```
