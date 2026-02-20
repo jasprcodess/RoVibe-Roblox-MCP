@@ -239,6 +239,10 @@ def run_install(
         results["exe_path"] = str(dst_exe)
         results["steps"].append("MCP server installed")
         step("server", "done")
+    except PermissionError:
+        results["errors"].append("MCP server is in use — close Claude/Cursor first, then reinstall")
+        step("server", "error")
+        return results
     except Exception as e:
         results["errors"].append(f"Failed to copy server: {e}")
         step("server", "error")
@@ -338,9 +342,8 @@ def run_uninstall(
             try:
                 exe.unlink()
             except PermissionError:
-                # Exe is locked (running process) — skip, it'll be overwritten on reinstall
-                results["steps"].append("MCP server in use (will be replaced on reinstall)")
-                step("server", "done")
+                results["errors"].append("MCP server is in use — close Claude/Cursor first, then uninstall")
+                step("server", "error")
             else:
                 # Remove dir if empty
                 if install_dir.exists() and not any(install_dir.iterdir()):
