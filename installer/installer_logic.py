@@ -335,12 +335,21 @@ def run_uninstall(
     exe = install_dir / get_exe_name()
     try:
         if exe.exists():
-            exe.unlink()
-        # Remove dir if empty
-        if install_dir.exists() and not any(install_dir.iterdir()):
-            install_dir.rmdir()
-        results["steps"].append("MCP server removed")
-        step("server", "done")
+            try:
+                exe.unlink()
+            except PermissionError:
+                # Exe is locked (running process) — skip, it'll be overwritten on reinstall
+                results["steps"].append("MCP server in use (will be replaced on reinstall)")
+                step("server", "done")
+            else:
+                # Remove dir if empty
+                if install_dir.exists() and not any(install_dir.iterdir()):
+                    install_dir.rmdir()
+                results["steps"].append("MCP server removed")
+                step("server", "done")
+        else:
+            results["steps"].append("MCP server (not found, skipped)")
+            step("server", "done")
     except Exception as e:
         results["errors"].append(f"Failed to remove server: {e}")
         step("server", "error")
