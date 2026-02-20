@@ -311,6 +311,137 @@ def run_install(
     return results
 
 
+def is_installed() -> bool:
+    """Check if RoVibe is already installed."""
+    install_dir = get_install_dir()
+    exe = install_dir / get_exe_name()
+    return exe.exists()
+
+
+def run_uninstall(
+    on_step: Callable[[str, str], None] | None = None,
+) -> dict:
+    """
+    Remove all RoVibe files and config entries.
+    on_step(step_id, status) where status is 'working', 'done', or 'error'.
+    """
+
+    def step(step_id: str, status: str):
+        if on_step:
+            on_step(step_id, status)
+        if status == "working":
+            time.sleep(0.1)
+
+    results = {"steps": [], "errors": []}
+
+    # 1. Remove MCP server
+    step("server", "working")
+    install_dir = get_install_dir()
+    exe = install_dir / get_exe_name()
+    try:
+        if exe.exists():
+            exe.unlink()
+        # Remove dir if empty
+        if install_dir.exists() and not any(install_dir.iterdir()):
+            install_dir.rmdir()
+        results["steps"].append("MCP server removed")
+        step("server", "done")
+    except Exception as e:
+        results["errors"].append(f"Failed to remove server: {e}")
+        step("server", "error")
+
+    # 2. Remove Studio plugin
+    step("plugin", "working")
+    plugins_dir = find_studio_plugins()
+    if plugins_dir:
+        plugin_file = plugins_dir / "MCPStudioPlugin.rbxm"
+        try:
+            if plugin_file.exists():
+                plugin_file.unlink()
+            results["steps"].append("Studio plugin removed")
+            step("plugin", "done")
+        except Exception as e:
+            results["errors"].append(f"Failed to remove plugin: {e}")
+            step("plugin", "error")
+    else:
+        results["steps"].append("Studio plugin (not found, skipped)")
+        step("plugin", "done")
+
+    # 3. Remove from Claude Desktop config
+    step("claude", "working")
+    claude_path = get_claude_config_path()
+    if claude_path and claude_path.exists():
+        try:
+            with open(claude_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+            servers = config.get("mcpServers", {})
+            removed = False
+            for key in ["RoVibe_Studio", "Roblox Studio"]:
+                if key in servers:
+                    del servers[key]
+                    removed = True
+            if removed:
+                with open(claude_path, "w", encoding="utf-8") as f:
+                    json.dump(config, f, indent=2)
+                results["steps"].append("Claude Desktop config cleaned")
+            else:
+                results["steps"].append("Claude Desktop (no entry found)")
+            step("claude", "done")
+        except Exception as e:
+            results["errors"].append(f"Claude Desktop config: {e}")
+            step("claude", "error")
+    else:
+        step("claude", "done")
+
+    # 4. Remove from Cursor config
+    step("cursor", "working")
+    cursor_path = get_cursor_config_path()
+    if cursor_path and cursor_path.exists():
+        try:
+            with open(cursor_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+            servers = config.get("mcpServers", {})
+            removed = False
+            for key in ["RoVibe_Studio", "Roblox Studio"]:
+                if key in servers:
+                    del servers[key]
+                    removed = True
+            if removed:
+                with open(cursor_path, "w", encoding="utf-8") as f:
+                    json.dump(config, f, indent=2)
+                results["steps"].append("Cursor config cleaned")
+            else:
+                results["steps"].append("Cursor (no entry found)")
+            step("cursor", "done")
+        except Exception as e:
+            results["errors"].append(f"Cursor config: {e}")
+            step("cursor", "error")
+    else:
+        step("cursor", "done")
+
+    # 5. Remove from Claude Code CLI
+    step("claude_code", "working")
+    cli = _find_claude_cli()
+    if cli:
+        try:
+            result = subprocess.run(
+                [cli, "mcp", "remove", "RoVibe_Studio"],
+                capture_output=True, text=True, timeout=15,
+            )
+            if result.returncode == 0:
+                results["steps"].append("Claude Code CLI config cleaned")
+            else:
+                results["steps"].append("Claude Code (no entry found)")
+            step("claude_code", "done")
+        except Exception:
+            step("claude_code", "done")
+    else:
+        step("claude_code", "done")
+
+    step("complete", "done")
+    return results
+
+
 def get_running_restartable() -> dict[str, bool]:
     """Check which restartable processes are currently running."""
     running = {}

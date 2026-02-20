@@ -7,7 +7,8 @@ from tkinter import font as tkfont
 from installer_logic import (
     find_studio_plugins, is_studio_running,
     claude_desktop_detected, cursor_detected, claude_code_detected,
-    run_install, get_running_restartable, restart_process,
+    run_install, run_uninstall, is_installed,
+    get_running_restartable, restart_process,
 )
 
 # Palette
@@ -140,6 +141,49 @@ class InstallerApp:
         btn_frame.set_text = set_text
         return btn_frame
 
+    def _make_btn_red(self, parent, text, command):
+        btn_frame = tk.Frame(parent, bg=SURFACE, cursor="hand2", highlightbackground=ERROR, highlightthickness=1)
+        lbl = tk.Label(btn_frame, text=text, bg=SURFACE, fg=ERROR, font=self.fn_btn, pady=8)
+        lbl.pack(fill="x")
+
+        def on_click(e=None):
+            if btn_frame._state == "normal":
+                command()
+
+        def on_enter(e):
+            if btn_frame._state == "normal":
+                btn_frame.configure(bg=ERROR)
+                lbl.configure(bg=ERROR, fg="#fff")
+
+        def on_leave(e):
+            if btn_frame._state == "normal":
+                btn_frame.configure(bg=SURFACE)
+                lbl.configure(bg=SURFACE, fg=ERROR)
+
+        btn_frame._state = "normal"
+        lbl.bind("<Button-1>", on_click)
+        btn_frame.bind("<Button-1>", on_click)
+        lbl.bind("<Enter>", on_enter)
+        lbl.bind("<Leave>", on_leave)
+        btn_frame.bind("<Enter>", on_enter)
+        btn_frame.bind("<Leave>", on_leave)
+
+        def set_state(s):
+            btn_frame._state = s
+            if s == "normal":
+                btn_frame.configure(bg=SURFACE, cursor="hand2")
+                lbl.configure(bg=SURFACE, fg=ERROR)
+            else:
+                btn_frame.configure(bg=SURFACE, cursor="")
+                lbl.configure(bg=SURFACE, fg=MUTED)
+
+        def set_text(t):
+            lbl.configure(text=t)
+
+        btn_frame.set_state = set_state
+        btn_frame.set_text = set_text
+        return btn_frame
+
     # -- Main Screen --
     def _show_main_skeleton(self):
         # Header
@@ -187,9 +231,16 @@ class InstallerApp:
         bot.pack(fill="x", padx=PAD, pady=(0, PAD))
 
         self._studio_err = tk.Label(bot, text="Roblox Studio is required", bg=BG, fg=ERROR, font=self.fn_sm)
+        self._already_installed = is_installed()
 
-        self.install_btn = self._make_btn(bot, "Install", self._on_install, state="disabled")
-        self.install_btn.pack(fill="x")
+        if self._already_installed:
+            self.install_btn = self._make_btn(bot, "Reinstall", self._on_install, state="disabled")
+            self.install_btn.pack(fill="x", pady=(0, 6))
+            self.uninstall_btn = self._make_btn_red(bot, "Uninstall", self._on_uninstall)
+            self.uninstall_btn.pack(fill="x")
+        else:
+            self.install_btn = self._make_btn(bot, "Install", self._on_install, state="disabled")
+            self.install_btn.pack(fill="x")
 
     def _status_row(self, parent, name):
         row = tk.Frame(parent, bg=BG, height=22)
@@ -303,6 +354,101 @@ class InstallerApp:
             self.root.after(0, lambda: self._show_done(results))
 
         threading.Thread(target=do_install, daemon=True).start()
+
+    # -- Uninstalling --
+    def _on_uninstall(self):
+        self._clear()
+
+        hdr = tk.Frame(self.main, bg=BG)
+        hdr.pack(fill="x", padx=PAD, pady=(16, 8))
+        tk.Label(hdr, text="Uninstalling", bg=BG, fg="#fff", font=self.fn_md).pack(side="left")
+
+        self._div(self.main)
+
+        sf = tk.Frame(self.main, bg=BG)
+        sf.pack(fill="x", padx=PAD, pady=(10, 0))
+
+        step_defs = [
+            ("server", "Remove MCP server"),
+            ("plugin", "Remove Studio plugin"),
+            ("claude", "Clean Claude Desktop config"),
+            ("cursor", "Clean Cursor config"),
+            ("claude_code", "Clean Claude Code CLI"),
+        ]
+
+        self.step_rows = {}
+        for sid, label in step_defs:
+            row = tk.Frame(sf, bg=BG, height=24)
+            row.pack(fill="x", pady=1)
+            row.pack_propagate(False)
+
+            ind = tk.Label(row, text="\u25cb", bg=BG, fg=MUTED, font=("Segoe UI", 8))
+            ind.pack(side="left", padx=(2, 8))
+
+            txt = tk.Label(row, text=label, bg=BG, fg=MUTED, font=self.fn)
+            txt.pack(side="left")
+
+            st = tk.Label(row, text="", bg=BG, fg=MUTED, font=self.fn_sm)
+            st.pack(side="right")
+
+            self.step_rows[sid] = (ind, txt, st)
+
+        tk.Frame(self.main, bg=BG).pack(fill="both", expand=True)
+        self._progress_frame = tk.Frame(self.main, bg=SURFACE, height=3)
+        self._progress_frame.pack(fill="x", side="bottom")
+        self._progress_bar = tk.Frame(self._progress_frame, bg=ERROR, height=3, width=0)
+        self._progress_bar.place(x=0, y=0, height=3)
+        self._progress_pos = 0
+        self._progress_running = True
+        self._animate_progress()
+
+        def do_uninstall():
+            results = run_uninstall(
+                on_step=lambda sid, s: self.root.after(0, lambda: self._update_step(sid, s)),
+            )
+            self._install_results = results
+            self.root.after(0, lambda: self._show_uninstall_done(results))
+
+        threading.Thread(target=do_uninstall, daemon=True).start()
+
+    def _show_uninstall_done(self, results):
+        self._progress_running = False
+        self._clear()
+
+        has_errors = len(results.get("errors", [])) > 0
+
+        hdr = tk.Frame(self.main, bg=BG)
+        hdr.pack(fill="x", padx=PAD, pady=(16, 8))
+
+        if has_errors:
+            title, tc = "Uninstalled with issues", WARN
+        else:
+            title, tc = "Uninstalled", SUCCESS
+
+        tk.Label(hdr, text=title, bg=BG, fg=tc, font=self.fn_md).pack(side="left")
+
+        self._div(self.main)
+
+        rf = tk.Frame(self.main, bg=BG)
+        rf.pack(fill="x", padx=PAD, pady=(10, 0))
+
+        for s in results.get("steps", []):
+            row = tk.Frame(rf, bg=BG)
+            row.pack(fill="x", pady=1)
+            tk.Label(row, text="\u25cf", bg=BG, fg=SUCCESS, font=("Segoe UI", 7)).pack(side="left", padx=(2, 6), anchor="n")
+            tk.Label(row, text=s, bg=BG, fg=TEXT, font=self.fn_sm, wraplength=W - 60, justify="left", anchor="w").pack(side="left", fill="x")
+
+        for e in results.get("errors", []):
+            row = tk.Frame(rf, bg=BG)
+            row.pack(fill="x", pady=1)
+            tk.Label(row, text="\u25cf", bg=BG, fg=ERROR, font=("Segoe UI", 7)).pack(side="left", padx=(2, 6), anchor="n")
+            tk.Label(row, text=e, bg=BG, fg=ERROR, font=self.fn_sm, wraplength=W - 60, justify="left", anchor="w").pack(side="left", fill="x")
+
+        tk.Frame(self.main, bg=BG).pack(fill="both", expand=True)
+
+        bot = tk.Frame(self.main, bg=BG)
+        bot.pack(fill="x", padx=PAD, pady=(0, PAD))
+        self._make_btn(bot, "Done", self.root.destroy).pack(fill="x")
 
     def _animate_progress(self):
         if not self._progress_running:
@@ -479,18 +625,16 @@ class InstallerApp:
         rf.pack(fill="x", padx=PAD, pady=(10, 0))
 
         for s in results.get("steps", []):
-            row = tk.Frame(rf, bg=BG, height=20)
+            row = tk.Frame(rf, bg=BG)
             row.pack(fill="x", pady=1)
-            row.pack_propagate(False)
-            tk.Label(row, text="\u25cf", bg=BG, fg=SUCCESS, font=("Segoe UI", 7)).pack(side="left", padx=(2, 6))
-            tk.Label(row, text=s, bg=BG, fg=TEXT, font=self.fn_sm).pack(side="left")
+            tk.Label(row, text="\u25cf", bg=BG, fg=SUCCESS, font=("Segoe UI", 7)).pack(side="left", padx=(2, 6), anchor="n")
+            tk.Label(row, text=s, bg=BG, fg=TEXT, font=self.fn_sm, wraplength=W - 60, justify="left", anchor="w").pack(side="left", fill="x")
 
         for e in results.get("errors", []):
-            row = tk.Frame(rf, bg=BG, height=20)
+            row = tk.Frame(rf, bg=BG)
             row.pack(fill="x", pady=1)
-            row.pack_propagate(False)
-            tk.Label(row, text="\u25cf", bg=BG, fg=ERROR, font=("Segoe UI", 7)).pack(side="left", padx=(2, 6))
-            tk.Label(row, text=e, bg=BG, fg=ERROR, font=self.fn_sm).pack(side="left")
+            tk.Label(row, text="\u25cf", bg=BG, fg=ERROR, font=("Segoe UI", 7)).pack(side="left", padx=(2, 6), anchor="n")
+            tk.Label(row, text=e, bg=BG, fg=ERROR, font=self.fn_sm, wraplength=W - 60, justify="left", anchor="w").pack(side="left", fill="x")
 
         # Claude Code command
         if results.get("claude_code_cmd") and not all_failed and not self._opt_vars["claude_code"].get():
