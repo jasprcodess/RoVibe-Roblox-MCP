@@ -141,6 +141,18 @@ def claude_code_detected() -> bool:
         return False
 
 
+def detect_all() -> dict:
+    """Run all detection checks. Returns dict of booleans."""
+    plugins = find_studio_plugins()
+    return {
+        "studio": plugins is not None,
+        "studio_running": is_studio_running() if plugins else False,
+        "claude": claude_desktop_detected(),
+        "cursor": cursor_detected(),
+        "claude_code": claude_code_detected(),
+    }
+
+
 def upsert_mcp_config(config_path: Path, exe_path: Path) -> bool:
     try:
         config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -193,7 +205,7 @@ def run_install(
         if on_step:
             on_step(step_id, status)
         if status == "working":
-            time.sleep(0.15)
+            time.sleep(0.1)
 
     results = {"steps": [], "errors": [], "exe_path": None, "claude_code_cmd": None}
 
