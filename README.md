@@ -8,7 +8,7 @@
 
 ## Quick Setup
 
-1. Download the latest release for your OS from [Releases](https://github.com/jasprcodess/RoVibe-Roblox-MCP/releases)
+1. Download the latest release for your OS 
 2. Run it
 3. Restart Roblox Studio and your AI client
 
