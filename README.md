@@ -9,7 +9,7 @@
 ## Quick Setup
 
 1. Download the latest release for your OS from [Releases](https://github.com/jasprcodess/RoVibe-Roblox-MCP/releases)
-2. Run it (Windows: `RoVibe-Installer.exe`, macOS: `chmod +x rovibe-mcp-macos && ./rovibe-mcp-macos`)
+2. Run it
 3. Restart Roblox Studio and your AI client
 
 That's it. The installer handles the plugin, config files, and everything else.
@@ -32,7 +32,7 @@ Multiple AI clients can connect at the same time. Extra instances automatically 
 ## Setup
 
 ### Windows
-1. Download `RoVibe-Installer.exe` from [Releases](https://github.com/jasprcodess/RoVibe-Roblox-MCP/releases)
+1. Download from releases
 2. Run the installer, it walks you through everything
 3. Restart Roblox Studio and your AI client
 
